@@ -1,0 +1,11 @@
+#!/bin/sh
+# adversarial-review-loop pre-push dispatcher (installed by setup.sh).
+# Runs the descendant guard and the coder-agnostic review-receipt gate, feeding
+# each the same ref lines that Git delivers on stdin. Either one failing aborts
+# the push.
+d="$(dirname "$0")"
+refs="$(cat)"
+
+printf '%s\n' "$refs" | "$d/pre-push-main-guard.sh"  "$@" || exit $?
+printf '%s\n' "$refs" | "$d/pre-push-review-gate.sh" "$@" || exit $?
+exit 0

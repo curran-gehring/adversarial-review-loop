@@ -1,12 +1,12 @@
 # Setup guide
 
-Stand up the full review loop — author with Claude, gate every push to `main` on
-an independent Codex adversarial review — from zero. Follow top to bottom.
+Stand up the full review loop — author with any tool, gate every push to `main`
+on an independent Codex adversarial review — from zero. Follow top to bottom.
 
 There are two deployment shapes; pick one and the steps tell you where they
 differ:
 
-- **Local** — Codex and Claude Code run on the same machine.
+- **Local** — Codex runs on the same machine you author on.
 - **Remote** — Codex runs on another host (e.g. a Mac for `codex`/macOS tooling)
   that you reach over SSH. We'll call its hostname `REVIEW_HOST` throughout;
   substitute your own (an `~/.ssh/config` alias is easiest).
@@ -39,11 +39,12 @@ On the machine where **Codex** runs (local or `REVIEW_HOST`):
      | codex exec -s read-only --skip-git-repo-check "Emit only the requested line."
    ```
 
-On the machine where **Claude Code** runs:
+On the machine you **author** on:
 
-- **Node ≥ 18** (`node --version`) and **git**.
-- **Python 3** (for the pre-push gate hook).
-- **Claude Code** installed and working.
+- **git**, and **bash** (for `review-gate.sh` / the hooks).
+- **Node ≥ 18** if you use the MCP wrapper (`node --version`).
+- **Python 3** only if you use the Claude Code adapter (`require-review.py`).
+- Your coder of choice — Claude Code, Cursor, Aider, another agent, or just you.
 
 ---
 
@@ -54,8 +55,8 @@ Clone it onto the machine where **Codex** runs (the MCP server and
 shape that's the same machine as Claude Code.
 
 ```sh
-git clone <this-repo-url> codex-review-loop
-cd codex-review-loop/mcp
+git clone <this-repo-url> adversarial-review-loop
+cd adversarial-review-loop/mcp
 npm install
 npm run selftest      # pure-parser unit tests; should print "ALL PASS"
 ```
@@ -77,7 +78,7 @@ even from a shell-less / sandboxed client.
 ### Local shape
 
 ```sh
-claude mcp add codex-review -- node /ABS/PATH/TO/codex-review-loop/mcp/server.mjs
+claude mcp add codex-review -- node /ABS/PATH/TO/adversarial-review-loop/mcp/server.mjs
 ```
 
 Or add it by hand to your Claude Code MCP config:
@@ -87,7 +88,7 @@ Or add it by hand to your Claude Code MCP config:
   "mcpServers": {
     "codex-review": {
       "command": "node",
-      "args": ["/ABS/PATH/TO/codex-review-loop/mcp/server.mjs"]
+      "args": ["/ABS/PATH/TO/adversarial-review-loop/mcp/server.mjs"]
     }
   }
 }
@@ -102,7 +103,7 @@ Run the server *on the remote host* by making the command SSH there:
   "mcpServers": {
     "codex-review": {
       "command": "ssh",
-      "args": ["REVIEW_HOST", "node", "/ABS/PATH/ON/REMOTE/codex-review-loop/mcp/server.mjs"]
+      "args": ["REVIEW_HOST", "node", "/ABS/PATH/ON/REMOTE/adversarial-review-loop/mcp/server.mjs"]
     }
   }
 }
@@ -119,35 +120,67 @@ Restart Claude Code and confirm the `codex_review_*` tools are listed.
 
 ---
 
-## 4. Install the pre-push gate (git hook)
+## 4. Install the gates (one command)
 
-This refuses any push to `main` whose local HEAD isn't a descendant of
-`origin/main` — it stops you from clobbering `main` with a stale base. Install it
-**per repo** you want protected:
+`setup.sh` installs a pre-push hook into a repo you want protected. By default it
+installs **both** gates as a dispatcher:
+
+- `pre-push-main-guard.sh` — refuses pushes to `main` that aren't descendants of
+  `origin/main` (no clobbering with a stale base).
+- `pre-push-review-gate.sh` — **coder-agnostic**: refuses pushes to `main` unless
+  the commit being pushed has an APPROVE **receipt**. This is what enforces the
+  review loop regardless of who or what authored the code.
 
 ```sh
-cp /ABS/PATH/TO/codex-review-loop/hooks/pre-push-main-guard.sh \
-   <your-repo>/.git/hooks/pre-push
-chmod +x <your-repo>/.git/hooks/pre-push
+/ABS/PATH/TO/adversarial-review-loop/setup.sh <your-repo>
+#   --no-review   install only the descendant guard
 ```
 
-(To protect every clone automatically, set `git config --global core.hooksPath`
-to a directory containing this file — but note that overrides per-repo hooks.)
+It honors `core.hooksPath` (incl. a relative one, resolved against the worktree
+root), backs up any existing `pre-push` under a unique name, and never writes
+through a symlink. Re-running is safe.
+
+Escape hatches (env vars read by the review gate):
+`ARL_PROTECTED_BRANCH` (default `main`) · `ARL_SKIP_REVIEW=1` (bypass — say why).
 
 ---
 
-## 5. Install the review gate (Claude Code PreToolUse hook)
+## 5. Author with anything, then record a review
 
-`hooks/require-review.py` is the backstop that enforces the protocol: before any
-`git push` reaching `main`, it scans the session transcript for a recent review
-whose result carries `VERDICT: APPROVE`. No review / a REJECT / a review still in
-flight → it blocks the push (exit 2). It recognizes the `ask-codex` MCP tool,
-this repo's `codex_review_poll`, a general-purpose `Agent` review, and a direct
-`codex exec` run via Bash. A bare `echo "VERDICT: APPROVE"` does **not** satisfy
-it — the verdict must come from reading Codex's own output.
+The gate checks a receipt, not your editor — so **any** coder works: Claude Code,
+Cursor, Aider, Codex-as-coder, another agent, or a human. Before pushing to
+`main`, record a review with `review-gate.sh`:
 
-Register it in your Claude Code `settings.json` (user-level or the project's
-`.claude/settings.json`):
+```sh
+cd <your-repo>
+# Local reviewer:
+/ABS/PATH/TO/adversarial-review-loop/review-gate.sh main
+# Remote reviewer (Codex on another host):
+ARL_REVIEW_HOST=REVIEW_HOST /ABS/PATH/TO/adversarial-review-loop/review-gate.sh main
+```
+
+It diffs `main...HEAD`, runs the 3-lens fan-out, prints each lens's verdict, and
+**on a unanimous APPROVE writes the receipt** for the current `HEAD`
+(`$GIT_DIR/adversarial-review/<sha>`). On any REJECT it writes nothing and exits
+non-zero. The lens logs are persisted to
+`$GIT_DIR/adversarial-review/last-review/fan.{correctness,data,ui}.log` — read the
+findings there, fix, and re-run.
+
+Local vs remote: **local** mode lets the reviewer open full source files for
+surrounding context; **remote** (`ARL_REVIEW_HOST`) is **diff-scoped** — only the
+unified diff is sent to the review host, so the reviewer judges the
+(self-contained) diff, not a checkout.
+
+### Claude Code adapter (optional transcript gate)
+
+If you author with Claude Code, you can register `require-review.py` as a
+PreToolUse hook. It blocks any `git push` reaching `main` when the current session
+shows no APPROVE review — a fast, in-session backstop. It is a **gate only**: it
+does NOT write a receipt (a transcript APPROVE can't be soundly bound to the
+commit you end up pushing). So either pair it with `setup.sh --no-review` (gate by
+transcript instead of receipt), or keep the receipt gate and still run
+`review-gate.sh` to produce the receipt. This toolkit's own `.claude/settings.json`
+is exactly this block:
 
 ```json
 {
@@ -158,7 +191,7 @@ Register it in your Claude Code `settings.json` (user-level or the project's
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /ABS/PATH/TO/codex-review-loop/hooks/require-review.py"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/hooks/require-review.py\""
           }
         ]
       }
@@ -167,80 +200,55 @@ Register it in your Claude Code `settings.json` (user-level or the project's
 }
 ```
 
-On Windows use `python` (not `python3`) if that's your launcher. The hook reads
-the Claude Code hook payload on stdin and falls open (allows the push) only when
-it genuinely can't see the transcript.
+On Windows use `python` if that's your launcher. The hook falls open (allows the
+push) only when it genuinely can't see the transcript; the git receipt gate from
+step 4 remains the hard backstop.
 
 ---
 
-## 6. Install the fan-out script
+## 6. The fan-out, directly (optional)
 
-On the Codex host, make it executable and put it somewhere convenient:
-
-```sh
-chmod +x /ABS/PATH/TO/codex-review-loop/fanout-review.sh
-```
-
-Usage:
+`review-gate.sh` wraps the fan-out for you. To run it on its own:
 
 ```
 fanout-review.sh <diff_path> <out_prefix> ["extra context"] [repo_dir]
 ```
 
 - `diff_path` — the unified diff to review.
-- `out_prefix` — log path prefix; produces
-  `<out_prefix>.correctness.log`, `.data.log`, `.ui.log`.
+- `out_prefix` — log prefix; produces `<out_prefix>.{correctness,data,ui}.log`.
 - `extra context` — optional one-line description appended to each lens prompt.
 - `repo_dir` — repo root so Codex can read source (defaults to the current dir).
 
-Edit the three lens prompts (`C`, `D`, `U`) and `RULES` at the top of the script
-to match your stack — the defaults are language-agnostic but you can sharpen them
-(e.g. name your concurrency primitives or framework).
+Edit the lens prompts (`C`, `D`, `U`) and `RULES` at the top to match your stack —
+the defaults are language-agnostic but you can sharpen them.
 
 ---
 
 ## 7. End-to-end walkthrough
 
-From inside a feature branch with changes ready for `main`:
+From a feature branch with changes ready for `main`:
 
 ```sh
-# 1. Capture the diff against main.
-git diff main...HEAD > /tmp/review.diff
+# 1. Review HEAD and record the receipt on a clean sweep.
+ARL_REVIEW_HOST=REVIEW_HOST /ABS/PATH/TO/adversarial-review-loop/review-gate.sh main
+#   prints each lens verdict, then:
+#     VERDICT: APPROVE  + "receipt recorded …"   → proceed
+#     VERDICT: REJECT   → fix, re-run (no receipt written)
 
-# 2. Fan out the 3-lens review.
-#    Local: run directly. Remote: scp the diff over first, then ssh.
-/ABS/PATH/TO/codex-review-loop/fanout-review.sh \
-    /tmp/review.diff /tmp/review-fan "short context for this change" "$PWD"
-#  ... prints FANOUT_DONE when all three lenses finish.
-
-# 3. Read the verdicts.
-grep -h '^VERDICT:' /tmp/review-fan.correctness.log \
-                    /tmp/review-fan.data.log \
-                    /tmp/review-fan.ui.log
+# 2. Push. The pre-push dispatcher runs the descendant guard AND the receipt
+#    gate; both pass because the receipt matches HEAD.
+git push origin main
 ```
 
-**Remote variant** of step 2:
+If you amend or add commits after the review, the SHA changes and the receipt no
+longer matches — re-run `review-gate.sh`. That's intended: you review exactly what
+you push.
 
-```sh
-scp /tmp/review.diff REVIEW_HOST:/tmp/review.diff
-ssh REVIEW_HOST '/ABS/PATH/ON/REMOTE/fanout-review.sh /tmp/review.diff /tmp/review-fan "short context" /path/to/repo/on/remote'
-ssh REVIEW_HOST "grep -h '^VERDICT:' /tmp/review-fan.{correctness,data,ui}.log"
-```
-
-**Aggregate and act:**
-
-- All three `VERDICT: APPROVE` → push:
-  ```sh
-  git push origin main          # the pre-push gate + review gate both pass
-  ```
-- Any `VERDICT: REJECT` → read that lens's full log for the findings, **fix
-  them**, then loop back to step 1. Re-run until all three approve. A single
-  rejection means the change isn't ready — don't push around it.
-
-> Driving this from Claude Code: Claude produces the diff, runs the fan-out (or
-> the MCP `codex_review_start`/`codex_review_poll` tools), aggregates, fixes on
-> REJECT, and only then runs `git push`. The PreToolUse gate from step 5 is the
-> safety net if the convention is ever skipped.
+> Driving this from Claude Code: Claude runs `review-gate.sh` as its review step
+> (it can call it directly), fixes on REJECT, and on a clean sweep the receipt is
+> written — then the plain `git push` sails through the same gate every other
+> coder uses. The optional `require-review.py` transcript gate is a separate,
+> in-session backstop; it does not replace the receipt.
 
 ---
 

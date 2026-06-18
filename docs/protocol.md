@@ -89,5 +89,36 @@ the union of findings from the rejecting lenses. Then emit a single final
 - **Shell (`codex exec` directly):** when a shell is available, `fanout-review.sh`
   is the fastest path. Pipe the diff to stdin; read the lens logs.
 
-Both satisfy the pre-push gate (`hooks/require-review.py`). See
-[`install.md`](install.md) for wiring.
+## Enforcement is coder-agnostic (receipts)
+
+Both ends of the loop are pluggable — the reviewer (which model reviews) **and**
+the coder (which tool, agent, or human writes the code). The reviewer is
+swappable because the only contract is the `VERDICT:` line. The **coder** is
+swappable because enforcement never reads the author's harness; it checks a
+**receipt**:
+
+- `review-gate.sh` runs the fan-out, and on a unanimous APPROVE writes
+  `$GIT_DIR/adversarial-review/<sha>` (first line `APPROVE`) for the current
+  `HEAD`.
+- The pre-push gate `hooks/pre-push-review-gate.sh` lets a push to the protected
+  branch through **only** if the commit being pushed has such a receipt.
+
+Because the receipt is keyed to the commit SHA, amending or adding commits after
+a review invalidates it — you review exactly what you push. The receipt lives
+under `$GIT_DIR` (never committed); the gate is a local guardrail, not a
+cryptographic boundary (`ARL_SKIP_REVIEW=1` bypasses it deliberately).
+
+**Producing a receipt** — every coder uses the same command:
+
+| Coder | How the receipt gets written |
+|---|---|
+| Claude Code / Cursor / Aider / Codex-as-coder / any agent / a human | run `review-gate.sh <base>` before pushing (Claude Code can run it in-session as its review step). |
+
+`hooks/require-review.py` is an optional Claude-Code-only *transcript gate*: a
+PreToolUse hook that blocks a push when the session shows no APPROVE review. It
+does **not** write receipts — a transcript APPROVE can't be soundly bound to the
+current commit (you might amend after the review), and certifying that as a
+receipt would let unreviewed content through. Pair it with `setup.sh --no-review`
+if you want transcript-based gating instead of the receipt gate.
+
+See [`install.md`](install.md) for wiring.

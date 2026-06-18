@@ -53,8 +53,14 @@ transcript for a review whose result carries `VERDICT: APPROVE` before any
 `git push` that would reach `main`, and exits 2 if it doesn't find one. A bare
 `echo "VERDICT: APPROVE"` does NOT satisfy it (the verdict must come from reading
 Codex's own output), and a review still in flight blocks rather than accepting a
-stale APPROVE. The hook is a best-effort backstop — the convention above is what
-actually keeps `main` clean.
+stale APPROVE. It is a transcript **gate only** — it does NOT write a commit
+receipt (a transcript APPROVE can't be soundly bound to the commit you push), so
+the coder-agnostic git gate (`pre-push-review-gate.sh`) is satisfied by running
+`<PATH_TO>/review-gate.sh main`, which reviews exactly HEAD and records the
+receipt.
+
+(Enforcement is the git gate, not the editor. Any coder — Claude Code or
+otherwise — runs `review-gate.sh` before pushing.)
 
 ### What "adversarial" means here
 

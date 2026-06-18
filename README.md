@@ -7,6 +7,7 @@
 <p align="center">
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg">
   <img alt="Reviewer: pluggable" src="https://img.shields.io/badge/reviewer-pluggable-6f42c1.svg">
+  <img alt="Coder: pluggable" src="https://img.shields.io/badge/coder-pluggable-6f42c1.svg">
   <img alt="Default reviewer: Codex" src="https://img.shields.io/badge/default%20reviewer-Codex-black.svg">
   <img alt="Philosophy: quality over quantity" src="https://img.shields.io/badge/philosophy-quality%20%3E%20quantity-2ea44f.svg">
 </p>
@@ -38,18 +39,16 @@ git clone https://github.com/curran-gehring/adversarial-review-loop
 cd adversarial-review-loop/mcp && npm install && npm run selftest    # "ALL PASS"
 claude mcp add codex-review -- node "$PWD/server.mjs"
 
-# 3. The two gates, installed into a repo you want protected.
-cp ../hooks/pre-push-main-guard.sh <your-repo>/.git/hooks/pre-push
-chmod +x <your-repo>/.git/hooks/pre-push
-#    + register hooks/require-review.py as a PreToolUse "Bash" hook in
-#      Claude Code settings.json (snippet in docs/install.md).
+# 3. Install the gates into a repo you want protected (descendant guard +
+#    coder-agnostic review-receipt gate).
+/path/to/adversarial-review-loop/setup.sh <your-repo>
 
-# 4. Review a change, then push only on a clean sweep.
-git diff main...HEAD > /tmp/review.diff
-../fanout-review.sh /tmp/review.diff /tmp/review-fan "short context" "$PWD"
-grep -h '^VERDICT:' /tmp/review-fan.{correctness,data,ui}.log
-#   all three APPROVE → git push origin main
-#   any REJECT        → fix, regenerate the diff, re-run. Repeat.
+# 4. Author with anything (Claude Code, Cursor, Aider, a human…). Before pushing,
+#    record a review — review-gate.sh runs the fan-out and writes the receipt:
+cd <your-repo>
+ARL_REVIEW_HOST=<host-where-codex-lives> /path/to/adversarial-review-loop/review-gate.sh main
+#   all three lenses APPROVE → receipt written → git push   (the gate lets it through)
+#   any REJECT               → read the lens logs, fix, re-run. Repeat.
 ```
 
 Full setup (incl. the remote-reviewer / SSH shape and troubleshooting):
@@ -93,12 +92,16 @@ fixing what already shipped**.
 
 | Path | What it is |
 |---|---|
-| `mcp/` | `codex-review-mcp` — an **async** MCP wrapper around `codex exec` (the reference reviewer adapter). Start→poll so long reviews survive the tool-call timeout; ChatGPT-account safe; surfaces the reviewer's real errors. |
+| `review-gate.sh` | **Coder-agnostic runner.** Reviews `HEAD` vs base with the fan-out and, on a unanimous APPROVE, writes a per-commit receipt. Any author runs this, then pushes. |
 | `fanout-review.sh` | The 3-lens parallel review (correctness / data / ui). APPROVE iff all three approve. |
-| `hooks/pre-push-main-guard.sh` | A git pre-push hook: refuses pushes to `main` that aren't descendants of `origin/main`. |
-| `hooks/require-review.py` | A Claude Code PreToolUse hook: blocks any `git push` reaching `main` unless the recent transcript shows a completed review with `VERDICT: APPROVE`. |
-| `docs/protocol.md` | The protocol: why fan out, the aggregation rule, the loop, operational gotchas. |
-| `docs/install.md` | **Full step-by-step setup** — prerequisites, MCP registration (local & remote), both hooks, the fan-out, and a copy-pasteable end-to-end walkthrough. |
+| `mcp/` | `codex-review-mcp` — an **async** MCP wrapper around `codex exec` (the reference reviewer adapter). Start→poll so long reviews survive the tool-call timeout; ChatGPT-account safe; surfaces the reviewer's real errors. |
+| `hooks/pre-push` | The pre-push **dispatcher** installed by `setup.sh` — runs both gates below. |
+| `hooks/pre-push-main-guard.sh` | Git pre-push gate: refuses pushes to `main` that aren't descendants of `origin/main`. |
+| `hooks/pre-push-review-gate.sh` | Git pre-push gate (**coder-agnostic**): refuses pushes to `main` without an APPROVE receipt for the pushed commit — enforces the loop for *any* author. |
+| `hooks/require-review.py` | Optional **Claude Code transcript gate**: a PreToolUse hook that blocks a push when the session shows no APPROVE review. It does *not* write receipts — pair it with `setup.sh --no-review`, or just run `review-gate.sh`. |
+| `setup.sh` | Installs the gates into a repo (honors `core.hooksPath`; `--no-review` for the guard only). |
+| `docs/protocol.md` | The protocol: the two pluggable axes, why fan out, the aggregation rule, the loop, operational gotchas. |
+| `docs/install.md` | **Full step-by-step setup** — prerequisites, MCP registration (local & remote), gates, the fan-out, and a copy-pasteable end-to-end walkthrough. |
 | `examples/CLAUDE.md.example` | A drop-in review convention for your repo's `CLAUDE.md`. |
 
 ## Scope
@@ -107,19 +110,37 @@ This is the **review loop**, not a deployment system. It ends at the gated
 `git push` to `main`; wire your own build/ship to trigger after that. The one
 guarantee it makes: nothing lands on `main` without an independent APPROVE.
 
-## Swapping the reviewer
+## Both ends are pluggable
 
-The **reviewer is pluggable** — the only contract is "a different model that ends
-its review with a `VERDICT: APPROVE` / `VERDICT: REJECT — <reason>` line." This
-repo ships **Codex as the reference reviewer** (a strong, independent model you
-can run on a ChatGPT subscription with no API cost), but the protocol and the
-gate don't care which model produces the verdict.
+The whole design rests on the author and reviewer being **two independent
+models** — so neither end is hard-wired.
 
-To swap Codex out, point `fanout-review.sh` at a different CLI (keep the
-`VERDICT:` last-line contract), and/or add an MCP adapter alongside `mcp/`. The
-gate (`require-review.py`) already matches any MCP tool whose name ends
-`__ask-codex` or `__codex_review_poll`, plus a general-purpose `Agent` review —
-so an agent-driven review by a non-Codex model satisfies it too.
+**Swap the reviewer.** The only contract is "a different model that ends its
+review with a `VERDICT: APPROVE` / `VERDICT: REJECT — <reason>` line." This repo
+ships **Codex as the reference reviewer** (a strong, independent model you can run
+on a ChatGPT subscription with no API cost). To swap it, point `fanout-review.sh`
+at a different CLI (keep the `VERDICT:` last-line contract) and/or add an MCP
+adapter alongside `mcp/`.
+
+**Swap the coder.** Enforcement does **not** depend on who or what wrote the code.
+The pre-push gate (`hooks/pre-push-review-gate.sh`) only checks for an APPROVE
+**receipt** bound to the exact commit being pushed. Any author — Claude Code,
+Cursor, Aider, Codex-as-coder, another agent, or a human — produces that receipt
+the same way:
+
+```sh
+review-gate.sh main      # reviews HEAD, writes the receipt on a clean sweep
+```
+
+Because the receipt is written for the reviewed `HEAD` and the gate matches it to
+the pushed commit SHA, amending or adding commits after a review invalidates it —
+you review exactly what you push.
+
+`hooks/require-review.py` is an **optional** Claude Code extra: a PreToolUse hook
+that blocks a push if the current session shows no APPROVE review. It is a
+*transcript gate only* — it deliberately does **not** write receipts (a
+transcript APPROVE can't be soundly bound to the current commit), so use it with
+`setup.sh --no-review` for transcript-based gating, or just run `review-gate.sh`.
 
 ## License
 

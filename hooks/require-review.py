@@ -445,6 +445,11 @@ def main():
     decision, position = max(mcp_event, codex_event, key=lambda e: e[1])
 
     if position >= 0 and decision == "APPROVE":
+        # NOTE: this is a transcript GATE only — it deliberately does NOT write a
+        # commit receipt. A transcript APPROVE can't be soundly bound to the
+        # current HEAD (you might amend/add commits after the review), so writing
+        # a receipt here could certify unreviewed content. The coder-agnostic
+        # receipt is written by `review-gate.sh`, which reviews exactly HEAD.
         sys.exit(0)
 
     if decision == "REJECT":
