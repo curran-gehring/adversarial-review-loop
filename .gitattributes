@@ -1,0 +1,8 @@
+# Keep LF in the repo so shell hooks/scripts run on macOS/Linux regardless of
+# the checkout platform. A CRLF shebang (`#!/usr/bin/env bash\r`) is a hard error.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
