@@ -1,0 +1,78 @@
+# Project operating notes — review convention
+
+> Drop this into your repo's `CLAUDE.md` (or merge the section below into an
+> existing one). It tells Claude Code the one rule that keeps `main` clean.
+> Replace the `<…>` placeholders with your own paths/host.
+
+## Mandatory adversarial review before any push to `main`
+
+Before running **any `git push` that targets `main`** (including
+`git push origin main`, force pushes, and fast-forward merges followed by a
+push), I MUST:
+
+1. Have **Codex** (a separate model, so it reviews with a fully independent
+   chain-of-thought) **adversarially review** the change about to be pushed,
+   pointed at the actual diff (e.g. `git diff main...HEAD`). Ask it to emit, on
+   the LAST line, a strict verdict:
+
+   - `VERDICT: APPROVE` — no Medium- or High-severity blockers, OR
+   - `VERDICT: REJECT — <one-line summary>` — at least one blocker
+
+   **Preferred: the Codex fan-out.** Instead of one monolithic `codex exec` that
+   wanders into unrelated files and takes 30–45 min, run **3 scoped parallel
+   Codex workers** (correctness / data / ui), each told to read ONLY the diff's
+   files:
+   ```
+   git diff main...HEAD > /tmp/review.diff
+   <PATH_TO>/fanout-review.sh /tmp/review.diff /tmp/review-fan "<short context>" "$PWD"
+   grep -h '^VERDICT:' /tmp/review-fan.{correctness,data,ui}.log
+   ```
+   **Aggregate: APPROVE iff all three APPROVE; REJECT if any does.** Emit a
+   single final `VERDICT:` line (the hook keys on it). One diff at a time; re-run
+   a lens solo if it stalls on `ERROR: Reconnecting...`.
+
+   (Remote Codex host: `scp` the diff to `<REVIEW_HOST>` and run `fanout-review.sh`
+   over `ssh`, then `grep` the lens logs there.)
+
+   Fallback (single pass) when the fan-out isn't available:
+   - **`codex exec` directly on a shell**: pipe the diff to stdin and pass the
+     prompt as an arg —
+     `git diff main...HEAD | codex exec -s read-only --skip-git-repo-check "<prompt>"`.
+     Background it to a log and `grep -E '^VERDICT:' log | tail -1`.
+   - The async MCP wrapper's `codex_review_start` / `codex_review_poll` tools —
+     for shell-less clients or long reviews.
+
+2. If **REJECT** — address the blockers, then invoke Codex **again** for a fresh
+   review. Repeat until APPROVE. Don't argue with rejections; either fix them or
+   explain to the user why Codex is wrong and ask for guidance.
+
+3. Only on APPROVE do I push to `main`.
+
+A PreToolUse hook at `<PATH_TO>/hooks/require-review.py` checks the recent
+transcript for a review whose result carries `VERDICT: APPROVE` before any
+`git push` that would reach `main`, and exits 2 if it doesn't find one. A bare
+`echo "VERDICT: APPROVE"` does NOT satisfy it (the verdict must come from reading
+Codex's own output), and a review still in flight blocks rather than accepting a
+stale APPROVE. The hook is a best-effort backstop — the convention above is what
+actually keeps `main` clean.
+
+### What "adversarial" means here
+
+Have Codex look for the classes of issues that cause real regressions in this
+codebase — fill in your own, e.g.:
+
+- Logic / ordering bugs that surface at runtime
+- State, threading, and async correctness — especially racey patterns around
+  `<your hot paths here>`
+- Resource leaks, reference cycles, unbounded growth
+- Data/persistence bugs: schema, migrations, sync round-trips, parsing, units
+- View-layer regressions to unrelated surfaces
+
+## Other conventions
+
+- Feature branches: `claude/<short-description>`.
+- Fast-forward merges to `main`; never force-push to `main`.
+- Per-fix commits with a clear "why".
+- The review gate is read-only and **cannot compile your project** — an APPROVE
+  does NOT mean it builds. If a green build matters, gate it separately in CI and
+  treat a red build like a REJECT.

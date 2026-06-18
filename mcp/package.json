@@ -1,0 +1,15 @@
+{
+  "name": "codex-review-mcp",
+  "version": "0.1.0",
+  "description": "Async MCP wrapper around `codex exec` for long, honest adversarial code reviews (ChatGPT-account safe).",
+  "type": "module",
+  "bin": { "codex-review-mcp": "server.mjs" },
+  "scripts": {
+    "start": "node server.mjs",
+    "selftest": "node selftest.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "engines": { "node": ">=18" }
+}

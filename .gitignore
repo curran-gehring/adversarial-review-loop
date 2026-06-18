@@ -1,0 +1,11 @@
+# Node
+node_modules/
+package-lock.json
+
+# MCP job state / review logs
+.codex-review-mcp/
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
