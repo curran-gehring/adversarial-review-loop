@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Parallel scoped Codex adversarial review.
+# Model-aware parallel scoped adversarial review.
 # usage: fanout-review.sh <diff_path> <out_prefix> ["extra context"] [repo_dir]
 #
-# Launches 3 tightly-scoped codex workers (correctness / data / ui) in parallel,
-# each forbidden from exploring unrelated code, each ending with a VERDICT line.
+# If the primary coder is Codex, dispatch Claude reviewers. If the primary coder
+# is Claude (or unknown/legacy), dispatch Codex reviewers. Override with:
+#   ARL_PRIMARY_MODEL=codex|claude
+#
+# Launches 3 tightly-scoped workers (correctness / data / ui) in parallel, each
+# forbidden from exploring unrelated code, each ending with a VERDICT line.
 # Writes one log per lens: <out_prefix>.{correctness,data,ui}.log
 #
 # Aggregate APPROVE iff all 3 say APPROVE. The caller does the aggregation:
@@ -12,6 +16,25 @@
 #
 # Requires the `codex` CLI (@openai/codex) on PATH, logged in.
 set -u
+
+detect_primary_model() {
+  case "${ARL_PRIMARY_MODEL:-}" in
+    codex|Codex|CODEX) echo "codex"; return ;;
+    claude|Claude|CLAUDE) echo "claude"; return ;;
+  esac
+
+  if [ -n "${CODEX_SHELL:-}" ] || [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_CI:-}" ]; then
+    echo "codex"
+    return
+  fi
+
+  echo "claude"
+}
+
+if [ "${ARL_FORCE_CODEX_FANOUT:-}" != "1" ] && [ "$(detect_primary_model)" = "codex" ]; then
+  here="$(cd "$(dirname "$0")" && pwd)"
+  exec "$here/claude-fanout-review.sh" "$@"
+fi
 
 DIFF="${1:?usage: fanout-review.sh <diff_path> <out_prefix> [\"extra context\"] [repo_dir]}"
 OUT="${2:?missing <out_prefix>}"

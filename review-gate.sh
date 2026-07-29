@@ -10,13 +10,31 @@
 # usage: review-gate.sh [base]            # base defaults to main
 # env:
 #   ARL_REVIEW_HOST   run the fan-out on this SSH host (default: local)
-#   ARL_FANOUT        path to fanout-review.sh (default: next to this script)
+#   ARL_PRIMARY_MODEL primary coder: codex|claude (auto-detected for Codex)
+#   ARL_FANOUT        path to fanout script (default: opposite primary model)
 #   ARL_CONTEXT       one-line context handed to the reviewer
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 base="${1:-main}"
-fanout="${ARL_FANOUT:-$here/fanout-review.sh}"
+detect_primary_model() {
+  case "${ARL_PRIMARY_MODEL:-}" in
+    codex|Codex|CODEX) echo "codex"; return ;;
+    claude|Claude|CLAUDE) echo "claude"; return ;;
+  esac
+
+  if [ -n "${CODEX_SHELL:-}" ] || [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_CI:-}" ]; then
+    echo "codex"
+    return
+  fi
+
+  echo "claude"
+}
+
+primary_model="$(detect_primary_model)"
+default_fanout="$here/fanout-review.sh"
+[ "$primary_model" = "codex" ] && default_fanout="$here/claude-fanout-review.sh"
+fanout="${ARL_FANOUT:-$default_fanout}"
 [ -f "$fanout" ] || { echo "error: fan-out script not found: $fanout" >&2; exit 1; }
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \

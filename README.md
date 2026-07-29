@@ -34,9 +34,9 @@ There are two roles, and **both are pluggable**:
 
 The repo doesn't care which tools fill those roles. It enforces the *loop* — an
 independent APPROVE before anything lands on `main` — not a particular vendor on
-either side. (The setup this repo ships and dogfoods is
-[Claude authors ⇄ Codex reviews](#reference-setup-claude-authors-codex-reviews), but that's an
-example, not a requirement.)
+either side. The default fan-out uses the opposite model family from the primary
+coder: Claude-primary work routes to Codex reviewers; Codex-primary work routes
+to Claude reviewers.
 
 ---
 
@@ -94,8 +94,8 @@ adding commits after a review invalidates it — you review exactly what you pus
 
 ## Quickstart
 
-> Uses the [reference setup](#reference-setup-claude-authors-codex-reviews) (Codex as the
-> reviewer) for concrete commands. Substitute your own reviewer/author anywhere.
+> Uses the model-aware default: set `ARL_PRIMARY_MODEL=claude` for Codex
+> reviewers, or `ARL_PRIMARY_MODEL=codex` for Claude reviewers.
 
 ```sh
 # 1. Bring up a reviewer. Reference: the Codex CLI (a ChatGPT account is fine).
@@ -118,15 +118,16 @@ Full setup (the optional MCP wrapper for agent authors, the remote/SSH shape,
 troubleshooting): **[`docs/install.md`](docs/install.md)** · The protocol and its
 rationale: **[`docs/protocol.md`](docs/protocol.md)**.
 
-## Reference setup: Claude authors, Codex reviews
+## Reference setup: opposite-model reviewers
 
-The configuration this repo ships with and uses on itself — one concrete pairing,
-not a constraint:
+The configuration this repo ships with and uses on itself:
 
-- **Author:** Claude Code. Optionally registers `hooks/require-review.py` (a
-  PreToolUse transcript gate) and drives long reviews through the `mcp/` wrapper.
-- **Reviewer:** Codex (`@openai/codex`), run as a 3-lens fan-out. It's a strong,
-  independent model you can run on a ChatGPT subscription with no API cost.
+- **Claude primary:** reviewers are Codex (`@openai/codex`) in a 3-lens fan-out.
+  Codex runs on the ChatGPT subscription path.
+- **Codex primary:** reviewers are Claude (`claude -p`) in a 3-lens fan-out.
+  Claude runs only on the Claude Code subscription path. The fan-out never passes
+  `--bare`, never sets `ANTHROPIC_API_KEY`, and scrubs any inherited
+  `ANTHROPIC_API_KEY` from reviewer subprocesses.
 
 Every component is replaceable: a human author needs only `review-gate.sh`; a
 different reviewer needs only to honor the `VERDICT:` contract.
@@ -136,7 +137,8 @@ different reviewer needs only to honor the `VERDICT:` contract.
 | Path | What it is |
 |---|---|
 | `review-gate.sh` | **Author-agnostic runner.** Reviews `HEAD` vs base with the fan-out and, on a unanimous APPROVE, writes a per-commit receipt. Any author runs this, then pushes. |
-| `fanout-review.sh` | The 3-lens parallel review (correctness / data / ui). APPROVE iff all three approve. Point it at any reviewer CLI. |
+| `fanout-review.sh` | Model-aware 3-lens parallel review (correctness / data / ui). Claude primary → Codex fan-out; Codex primary → Claude fan-out. APPROVE iff all three approve. |
+| `claude-fanout-review.sh` | Subscription-only Claude reviewer fan-out used when Codex is the primary coder. Scrubs `ANTHROPIC_API_KEY` and never uses `--bare`. |
 | `mcp/` | `codex-review-mcp` — an **async** MCP wrapper around `codex exec` (the reference reviewer adapter). Start→poll so long reviews survive the tool-call timeout; ChatGPT-account safe; surfaces the reviewer's real errors. |
 | `hooks/pre-push` | The pre-push **dispatcher** installed by `setup.sh` — runs both gates below. |
 | `hooks/pre-push-main-guard.sh` | Git pre-push gate: refuses pushes to `main` that aren't descendants of `origin/main`. |

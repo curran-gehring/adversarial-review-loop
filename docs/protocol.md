@@ -5,14 +5,17 @@ The pipeline is a single rule with a backstop:
 > **No change reaches `main` until an independent adversarial reviewer
 > returns `VERDICT: APPROVE`.**
 
-The author of the change is one model (e.g. Claude, via Claude Code). The
-reviewer is a **different** model (Codex), so it reviews with a fully
-independent chain-of-thought — it doesn't share the author's blind spots.
+The author of the change is one model. The reviewer is a **different** model, so
+it reviews with a fully independent chain-of-thought — it doesn't share the
+author's blind spots. The default routing is opposite-model:
+
+- Claude primary → Codex fan-out.
+- Codex primary → Claude fan-out.
 
 ```
   ┌────────────┐     diff      ┌──────────────────────────────┐
-  │  author    │ ────────────▶ │  Codex fan-out (3 lenses)    │
-  │ (Claude)   │               │  correctness │ data │ ui     │
+  │  author    │ ────────────▶ │ opposite-model fan-out        │
+  │            │               │  correctness │ data │ ui     │
   └────────────┘               └──────────────┬───────────────┘
         ▲                                      │
         │  REJECT — fix & re-run               │  3 × VERDICT lines
@@ -27,7 +30,7 @@ independent chain-of-thought — it doesn't share the author's blind spots.
 
 ## Why fan out into 3 lenses
 
-A single broad `codex exec` over a diff wanders into unrelated files and takes
+A single broad reviewer over a diff wanders into unrelated files and takes
 30–45 min. Three **scoped** workers, each told to read *only* the files the diff
 touches, are faster and catch more because each has one job:
 
@@ -74,9 +77,13 @@ the union of findings from the rejecting lenses. Then emit a single final
 - **Re-run a stalled lens solo.** If a lens dies on a transient
   `ERROR: Reconnecting...` or returns the banner with no response, re-run that
   one lens by itself rather than blocking the whole review.
-- **Keep the reviewer independent.** Don't substitute author-family subagents
-  for Codex — same model family means shared blind spots, which defeats the
-  point.
+- **Keep the reviewer independent.** Don't substitute author-family subagents for
+  the opposite-model fan-out — same model family means shared blind spots, which
+  defeats the point.
+- **Claude fan-out is subscription-only.** When Codex is primary,
+  `claude-fanout-review.sh` uses `claude -p` on the Claude Code subscription. It
+  must never pass `--bare`, must never set `ANTHROPIC_API_KEY`, and must scrub
+  inherited `ANTHROPIC_API_KEY` from reviewer subprocesses.
 - **APPROVE is not "it compiles".** Codex reviews read-only and can't build your
   project. If a green build matters, gate it separately in CI; treat a red build
   like a REJECT.
@@ -86,8 +93,10 @@ the union of findings from the rejecting lenses. Then emit a single final
 - **MCP (no shell needed):** the async wrapper in `mcp/` exposes
   `codex_review_start` / `codex_review_poll`, so a sandboxed Claude client with
   no shell can still drive a review. Long reviews survive the tool-call timeout.
-- **Shell (`codex exec` directly):** when a shell is available, `fanout-review.sh`
-  is the fastest path. Pipe the diff to stdin; read the lens logs.
+- **Shell (`fanout-review.sh` directly):** when a shell is available,
+  `fanout-review.sh` is the fastest path. It auto-routes from the primary model,
+  or accepts `ARL_PRIMARY_MODEL=claude|codex`. Pipe the diff to stdin; read the
+  lens logs.
 
 ## Enforcement is coder-agnostic (receipts)
 
