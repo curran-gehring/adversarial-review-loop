@@ -50,7 +50,7 @@ RULES="Read ONLY the files this diff touches; do NOT explore unrelated code. Be 
 
 run() {
   local name="$1"; local lens="$2"
-  cat "$DIFF" | codex exec -s read-only --skip-git-repo-check \
+  cat "$DIFF" | codex exec -s read-only --skip-git-repo-check --model "${ARL_CODEX_MODEL:-gpt-5.6-luna}" \
     "You are the ${name} lens of a parallel adversarial code review. ${lens} ${EXTRA} ${RULES}" \
     > "${OUT}.${name}.log" 2>&1
 }
