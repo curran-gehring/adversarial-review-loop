@@ -70,5 +70,20 @@ codex_count="$(grep -c '^codex$' "$calls" 2>/dev/null || true)"
   && ok "Claude primary dispatches three Codex reviewers" \
   || bad "Claude primary routed incorrectly (claude=$claude_count codex=$codex_count)"
 
+# An explicit backend must win over primary-coder detection, and must reach
+# neither CLI — the whole point is a model outside both families.
+out3="$work/openrouter-backend"
+: > "$calls"
+ARL_FANOUT_BACKEND=openrouter ARL_PRIMARY_MODEL=claude \
+  bash "$fanout" "$diff" "$out3" "ctx" "$work" >"$work/or.out" 2>&1
+claude_count="$(grep -c '^claude$' "$calls" 2>/dev/null || true)"
+codex_count="$(grep -c '^codex$' "$calls" 2>/dev/null || true)"
+[ "$claude_count" -eq 0 ] && [ "$codex_count" -eq 0 ] \
+  && ok "ARL_FANOUT_BACKEND=openrouter bypasses both CLI reviewers" \
+  || bad "openrouter backend still called a CLI (claude=$claude_count codex=$codex_count)"
+grep -qi 'OPENROUTER_API_KEY' "$work/or.out" \
+  && ok "openrouter backend fails fast when unconfigured" \
+  || bad "openrouter backend did not fail fast without credentials"
+
 echo
 [ "$fails" -eq 0 ] && { echo "PASS"; exit 0; } || { echo "FAIL ($fails)"; exit 1; }

@@ -17,6 +17,10 @@
 # Requires the `codex` CLI (@openai/codex) on PATH, logged in.
 set -u
 
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lenses.sh
+. "$here/lenses.sh"
+
 detect_primary_model() {
   case "${ARL_PRIMARY_MODEL:-}" in
     codex|Codex|CODEX) echo "codex"; return ;;
@@ -31,8 +35,14 @@ detect_primary_model() {
   echo "claude"
 }
 
+# An explicit backend choice wins over primary-coder detection. Use this to run
+# the lenses on a model from neither the Claude nor the Codex family, so the
+# three lenses stop sharing one model's blind spots.
+if [ "${ARL_FANOUT_BACKEND:-}" = "openrouter" ]; then
+  exec "$here/openrouter-fanout-review.sh" "$@"
+fi
+
 if [ "${ARL_FORCE_CODEX_FANOUT:-}" != "1" ] && [ "$(detect_primary_model)" = "codex" ]; then
-  here="$(cd "$(dirname "$0")" && pwd)"
   exec "$here/claude-fanout-review.sh" "$@"
 fi
 
@@ -43,10 +53,10 @@ REPO="${4:-$PWD}"   # default: current directory; pass the repo so codex can rea
 
 cd "$REPO" || { echo "fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
-C="Review ONLY correctness & concurrency: logic/ordering bugs, off-by-one and boundary errors, race conditions, threading/async and isolation, object lifecycle, null/undefined/force-unwrap and crash paths, resource leaks and reference cycles, error handling."
-D="Review ONLY data & persistence: SQL and schema, migrations, sync/record round-trips, serialization/parsing, units and coordinate math, and set/index/dedupe logic."
-U="Review ONLY UI/view-layer correctness & regressions: view/component state, list/key identity, framework/API validity for the target platform, reuse/duplication, and that unrelated surfaces are not regressed."
-RULES="Read ONLY the files this diff touches; do NOT explore unrelated code. Be concise. The repo may not be compilable here, so do not rely on building it. End with a final line that is EXACTLY one of: 'VERDICT: APPROVE' or 'VERDICT: REJECT -- <one-line reason>'."
+C="$ARL_LENS_CORRECTNESS"
+D="$ARL_LENS_DATA"
+U="$ARL_LENS_UI"
+RULES="$ARL_LENS_RULES"
 
 run() {
   local name="$1"; local lens="$2"

@@ -13,6 +13,10 @@
 # has one.
 set -u
 
+here="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lenses.sh
+. "$here/lenses.sh"
+
 DIFF="${1:?usage: claude-fanout-review.sh <diff_path> <out_prefix> [\"extra context\"] [repo_dir]}"
 OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
@@ -23,10 +27,10 @@ cd "$REPO" || { echo "claude-fanout-review: cannot cd to repo: $REPO" >&2; exit 
 CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-claude-fable-5}"
 CLAUDE_TIMEOUT="${ARL_CLAUDE_TIMEOUT:-600}"
 
-C="Review ONLY correctness & concurrency: logic/ordering bugs, off-by-one and boundary errors, race conditions, threading/async and isolation, object lifecycle, null/undefined/force-unwrap and crash paths, resource leaks and reference cycles, error handling."
-D="Review ONLY data & persistence: SQL and schema, migrations, sync/record round-trips, serialization/parsing, units and coordinate math, and set/index/dedupe logic."
-U="Review ONLY UI/view-layer correctness & regressions: view/component state, list/key identity, framework/API validity for the target platform, reuse/duplication, and that unrelated surfaces are not regressed."
-RULES="Read ONLY the files this diff touches; do NOT explore unrelated code. Be concise. The repo may not be compilable here, so do not rely on building it. End with a final line that is EXACTLY one of: 'VERDICT: APPROVE' or 'VERDICT: REJECT -- <one-line reason>'."
+C="$ARL_LENS_CORRECTNESS"
+D="$ARL_LENS_DATA"
+U="$ARL_LENS_UI"
+RULES="$ARL_LENS_RULES"
 
 run() {
   local name="$1" lens="$2" rc=0 tmo=""
