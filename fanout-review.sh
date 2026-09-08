@@ -53,6 +53,11 @@ REPO="${4:-$PWD}"   # default: current directory; pass the repo so codex can rea
 
 cd "$REPO" || { echo "fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
+# Which lenses this invocation runs. The panel runner sets this to a single
+# lens so different lenses can run on different reviewer families; default is
+# all three, so every existing caller is unaffected.
+ARL_LENSES="${ARL_LENSES:-correctness data ui}"
+
 C="$ARL_LENS_CORRECTNESS"
 D="$ARL_LENS_DATA"
 U="$ARL_LENS_UI"
@@ -65,9 +70,14 @@ run() {
     > "${OUT}.${name}.log" 2>&1
 }
 
-run correctness "$C" &
-run data "$D" &
-run ui "$U" &
+for _lens in $ARL_LENSES; do
+  case "$_lens" in
+    correctness) run correctness "$C" & ;;
+    data)        run data        "$D" & ;;
+    ui)          run ui          "$U" & ;;
+    *) echo "unknown lens: $_lens" >&2; exit 2 ;;
+  esac
+done
 wait
 
 echo "FANOUT_DONE"

@@ -74,7 +74,9 @@ codex_count="$(grep -c '^codex$' "$calls" 2>/dev/null || true)"
 # neither CLI — the whole point is a model outside both families.
 out3="$work/openrouter-backend"
 : > "$calls"
-ARL_FANOUT_BACKEND=openrouter ARL_PRIMARY_MODEL=claude \
+# `env -u` is load-bearing: once a real OPENROUTER_API_KEY exists in the
+# environment this stops testing fail-fast and starts making PAID API calls.
+env -u OPENROUTER_API_KEY ARL_FANOUT_BACKEND=openrouter ARL_PRIMARY_MODEL=claude \
   bash "$fanout" "$diff" "$out3" "ctx" "$work" >"$work/or.out" 2>&1
 claude_count="$(grep -c '^claude$' "$calls" 2>/dev/null || true)"
 codex_count="$(grep -c '^codex$' "$calls" 2>/dev/null || true)"

@@ -27,9 +27,29 @@ OUTDIR="${2:?missing <out_dir>}"
 REPO="${3:-$PWD}"
 
 [ -d "$CASES" ] || { echo "bakeoff: no such case dir: $CASES" >&2; exit 2; }
-[ -n "${OPENROUTER_API_KEY:-}" ] || { echo "bakeoff: OPENROUTER_API_KEY is not set" >&2; exit 2; }
 
-MODELS="${ARL_BAKEOFF_MODELS:-google/gemini-3.8-flash,moonshotai/kimi-k3,z-ai/glm-5.3,meituan/longcat-2.0}"
+# Which reviewer family to score. The codex and claude backends run on their
+# CLI subscriptions, so those arms cost no metered money — but the codex backend
+# can READ THE REPO while the openrouter backend only sees the diff plus inlined
+# files. That is an advantage to codex, not a controlled comparison; say so when
+# reporting any cross-backend result.
+BACKEND="${ARL_BAKEOFF_BACKEND:-openrouter}"
+case "$BACKEND" in
+  openrouter)
+    [ -n "${OPENROUTER_API_KEY:-}" ] || { echo "bakeoff: OPENROUTER_API_KEY is not set" >&2; exit 2; }
+    SCRIPT="$here/openrouter-fanout-review.sh"; MODELVAR=ARL_OPENROUTER_MODEL
+    DEFAULT_MODELS="google/gemini-3.8-flash,moonshotai/kimi-k3,z-ai/glm-5.3,meituan/longcat-2.0" ;;
+  codex)
+    SCRIPT="$here/fanout-review.sh"; MODELVAR=ARL_CODEX_MODEL
+    export ARL_FORCE_CODEX_FANOUT=1
+    DEFAULT_MODELS="gpt-5.6-luna" ;;
+  claude)
+    SCRIPT="$here/claude-fanout-review.sh"; MODELVAR=ARL_CLAUDE_MODEL
+    DEFAULT_MODELS="claude-sonnet-5" ;;
+  *) echo "bakeoff: unknown ARL_BAKEOFF_BACKEND: $BACKEND (openrouter|codex|claude)" >&2; exit 2 ;;
+esac
+
+MODELS="${ARL_BAKEOFF_MODELS:-$DEFAULT_MODELS}"
 mkdir -p "$OUTDIR"
 
 # Collect cases up front so a malformed set fails before any money is spent.
@@ -82,8 +102,8 @@ for model in $MODELS; do
     repo="$REPO"; [ -f "$CASES/$n.repo" ] && repo="$(tr -d '[:space:]' < "$CASES/$n.repo")"
     prefix="$OUTDIR/${slug}.${n}"
 
-    ARL_OPENROUTER_MODEL="$model" \
-      "$here/openrouter-fanout-review.sh" "$CASES/$n.diff" "$prefix" \
+    env "$MODELVAR=$model" \
+      "$SCRIPT" "$CASES/$n.diff" "$prefix" \
       "bake-off case: $n" "$repo" >/dev/null 2>&1
 
     v="$(gate_verdict "$prefix")"

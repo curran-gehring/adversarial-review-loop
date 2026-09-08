@@ -47,6 +47,11 @@ command -v python3 >/dev/null 2>&1 || {
 
 cd "$REPO" || { echo "openrouter-fanout: cannot cd to repo: $REPO" >&2; exit 2; }
 
+# Which lenses this invocation runs. The panel runner sets this to a single
+# lens so different lenses can run on different reviewer families; default is
+# all three, so every existing caller is unaffected.
+ARL_LENSES="${ARL_LENSES:-correctness data ui}"
+
 TIMEOUT="${ARL_OPENROUTER_TIMEOUT:-600}"
 MAX_BYTES="${ARL_OPENROUTER_MAX_BYTES:-400000}"
 BASE_URL="${ARL_OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
@@ -146,10 +151,15 @@ except Exception as e:
     || printf '\nVERDICT: REJECT -- openrouter %s lens emitted no verdict\n' "$name" >> "$log"
 }
 
-: > "${OUT}.correctness.log"; : > "${OUT}.data.log"; : > "${OUT}.ui.log"
-ARL_PAYLOAD="$tmp/correctness.json" run correctness "$ARL_LENS_CORRECTNESS" &
-ARL_PAYLOAD="$tmp/data.json"        run data        "$ARL_LENS_DATA" &
-ARL_PAYLOAD="$tmp/ui.json"          run ui          "$ARL_LENS_UI" &
+for _lens in $ARL_LENSES; do
+  : > "${OUT}.${_lens}.log"          # only the logs THIS invocation owns
+  case "$_lens" in
+    correctness) ARL_PAYLOAD="$tmp/correctness.json" run correctness "$ARL_LENS_CORRECTNESS" & ;;
+    data)        ARL_PAYLOAD="$tmp/data.json"        run data        "$ARL_LENS_DATA" & ;;
+    ui)          ARL_PAYLOAD="$tmp/ui.json"          run ui          "$ARL_LENS_UI" & ;;
+    *) echo "openrouter-fanout: unknown lens: $_lens" >&2; exit 2 ;;
+  esac
+done
 wait
 
 echo "FANOUT_DONE"
