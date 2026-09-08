@@ -138,6 +138,8 @@ different reviewer needs only to honor the `VERDICT:` contract.
 |---|---|
 | `review-gate.sh` | **Author-agnostic runner.** Reviews `HEAD` vs base with the fan-out and, on a unanimous APPROVE, writes a per-commit receipt. Any author runs this, then pushes. |
 | `fanout-review.sh` | Model-aware 3-lens parallel review (correctness / data / ui). Claude primary → Codex fan-out; Codex primary → Claude fan-out. APPROVE iff all three approve. |
+| `openrouter-fanout-review.sh` | Same 3 lenses against any OpenRouter-hosted model, for a reviewer outside both the Claude and Codex families. Select with `ARL_FANOUT_BACKEND=openrouter`; requires `OPENROUTER_API_KEY` and `ARL_OPENROUTER_MODEL` (exact slug, no default). Inlines touched-file contents since HTTP cannot read the repo. Fails closed on transport error, non-200, unparseable body, or a missing `VERDICT:` line. |
+| `lenses.sh` | Shared correctness/data/ui lens prompts + VERDICT rules, sourced by every backend so the wording cannot drift between them. |
 | `claude-fanout-review.sh` | Subscription-only Claude reviewer fan-out used when Codex is the primary coder. Scrubs `ANTHROPIC_API_KEY` and never uses `--bare`. |
 | `mcp/` | `codex-review-mcp` — an **async** MCP wrapper around `codex exec` (the reference reviewer adapter). Start→poll so long reviews survive the tool-call timeout; ChatGPT-account safe; surfaces the reviewer's real errors. |
 | `hooks/pre-push` | The pre-push **dispatcher** installed by `setup.sh` — runs both gates below. |
