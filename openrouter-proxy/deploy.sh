@@ -40,8 +40,37 @@ if [[ "${ARL_CF_OAUTH:-}" == "1" ]]; then
   exec npx wrangler "$@"
 fi
 
+# Prefer a Workers-only token from .cf-token (gitignored, chmod 600).
+#
+# Do NOT put a Workers token in ~/.zshenv's CLOUDFLARE_API_TOKEN. That variable
+# holds an R2 token (id 6fadf0f3…, buckets: dev, ios-ipa, ios-ipa-private,
+# tucker-customer-photos) which FirstWord's data pipeline depends on —
+# ship_interlinear.py, upload_bible_core_to_r2.py, publish_r2_manifest.py and
+# several refresh-*.yml workflows all read it. Overwriting it would break Bible
+# data publishing ambiently, with nothing pointing back to this worker.
+#
+# Least privilege also argues for a second token rather than adding
+# "Workers Scripts: Edit" to a storage credential.
+if [[ -f .cf-token ]]; then
+  CLOUDFLARE_API_TOKEN="$(tr -d '[:space:]' < .cf-token)"
+  export CLOUDFLARE_API_TOKEN
+  # .cf-token exists for this worker specifically, so the account it belongs to
+  # is not in doubt. Still asserted below rather than assumed.
+  export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-$WORK_ACCOUNT}"
+  echo "using Workers token from .cf-token"
+fi
+
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-  echo "Refusing to run: CLOUDFLARE_API_TOKEN is not set (expected from ~/.zshenv)." >&2
+  cat >&2 <<'MSG'
+Refusing to run: no Cloudflare token.
+
+Create a Workers-scoped token (dash > API Tokens > "Edit Cloudflare Workers"
+template, scoped to the tuckermilling account), then:
+
+    printf %s '<token>' > .cf-token && chmod 600 .cf-token
+
+Do not reuse the R2 token in ~/.zshenv; see the comment above.
+MSG
   exit 1
 fi
 

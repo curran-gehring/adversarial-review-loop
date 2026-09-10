@@ -1,4 +1,7 @@
 .app-token
+.cf-token
+.cf-token.*
+.set-secrets.lock/
 node_modules/
 .wrangler/
 .last-deploy.log
