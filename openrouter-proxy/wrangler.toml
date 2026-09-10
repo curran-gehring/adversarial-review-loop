@@ -1,0 +1,27 @@
+name = "arl-openrouter-proxy"
+main = "src/index.js"
+compatibility_date = "2026-09-10"
+
+[observability]
+enabled = true
+
+[vars]
+# Only what the gate's OpenRouter lenses actually run. Adding a model here is the
+# only way to make it spendable through this proxy — that is the point, not an
+# oversight. The correctness lens runs on codex against a ChatGPT subscription
+# and never touches this worker.
+ALLOWED_MODELS = "google/gemini-3.8-flash"
+# Reviews return a short verdict plus reasoning; they do not need a long tail.
+MAX_TOKENS = "4000"
+
+# 30 requests/min per IP. A panel run is 2 OpenRouter calls, so this is ~15
+# concurrent reviews — far above real use, low enough to bound a runaway loop.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "2001"
+simple = { limit = 30, period = 60 }
+
+# Secrets (NOT here — set with `wrangler secret put`):
+#   OPENROUTER_API_KEY  the real metered key, server-side only
+#   APP_TOKEN           what callers present; rotate by re-putting it

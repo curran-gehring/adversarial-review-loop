@@ -1,0 +1,4 @@
+.app-token
+node_modules/
+.wrangler/
+.last-deploy.log
