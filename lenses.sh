@@ -120,6 +120,20 @@ arl_unlock_prefix() {
   ARL_PREFIX_LOCK_DIR=""
 }
 
+# arl_require_diff <path> — the diff must exist AND contain patch content.
+#
+# `[ -f ]` alone passes a zero-byte or truncated file, which then reaches the
+# reviewer as an empty diff — and a model with nothing to criticize can answer
+# APPROVE. Same fail-open as a relative path that failed to open, reached by a
+# different route: an interrupted `git diff > file`, a diff of an empty range,
+# or an scp that produced the file before its contents.
+arl_require_diff() {
+  [ -f "$1" ] || { echo "arl: no such diff: $1" >&2; return 1; }
+  grep -qE '^(diff --git |--- |\+\+\+ |@@ )' "$1" 2>/dev/null || {
+    echo "arl: $1 contains no diff content; refusing to review nothing" >&2
+    return 1; }
+}
+
 arl_clear_logs() {
   _arl_out="$1"; shift
   for _arl_lens in "$@"; do

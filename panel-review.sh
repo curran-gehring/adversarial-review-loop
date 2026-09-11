@@ -71,7 +71,7 @@ arl_clear_logs "$OUT" correctness data ui || exit 2
 DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
 
-[ -f "$DIFF" ] || { echo "panel-review: no such diff: $DIFF" >&2; exit 2; }
+arl_require_diff "$DIFF" || exit 2
 
 # Validate the whole spec BEFORE running anything, so a typo fails in a second
 # rather than after one lens has already been paid for.

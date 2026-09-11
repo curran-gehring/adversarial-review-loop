@@ -65,7 +65,7 @@ arl_clear_logs "$OUT" $ARL_LENSES || exit 2
   echo "openrouter-fanout: OPENROUTER_API_KEY is not set (export it; do not commit it)" >&2; exit 2; }
 [ -n "${ARL_OPENROUTER_MODEL:-}" ] || {
   echo "openrouter-fanout: ARL_OPENROUTER_MODEL is not set (exact OpenRouter slug, e.g. vendor/model-name)" >&2; exit 2; }
-[ -f "$DIFF" ] || { echo "openrouter-fanout: no such diff: $DIFF" >&2; exit 2; }
+arl_require_diff "$DIFF" || exit 2
 
 PY="$(arl_pick_python)" || {
   echo "openrouter-fanout: no working Python found (tried ${ARL_PYTHON:+$ARL_PYTHON }python3 python py); set ARL_PYTHON" >&2

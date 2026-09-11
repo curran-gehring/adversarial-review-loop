@@ -43,7 +43,7 @@ trap 'arl_unlock_prefix' EXIT
 # survives — see arl_clear_logs in lenses.sh.
 arl_clear_logs "$OUT" $ARL_LENSES || exit 1
 
-[ -f "$DIFF" ] || { echo "claude-fanout-review: no such diff: $DIFF" >&2; exit 1; }
+arl_require_diff "$DIFF" || exit 1
 
 cd "$REPO" || { echo "claude-fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 

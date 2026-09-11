@@ -220,6 +220,23 @@ for b in $backends; do
     || ok "$b refuses a prefix another review holds"
   rmdir "${held}.lock" 2>/dev/null
 
+  # A diff file that EXISTS but holds no patch content must be refused too.
+  # `[ -f ]` alone passes a zero-byte or truncated file, which reaches the
+  # reviewer as an empty diff a model can answer APPROVE to — the same fail-open
+  # as a relative path that failed to open, by a different route.
+  emp="$work/empty_$(printf '%s' "$b" | tr -c 'a-zA-Z0-9' '_')"
+  : > "$work/empty.diff"
+  (
+    cd "$work" || exit 1
+    env ARL_LENSES=data \
+        OPENROUTER_API_KEY=sk-test ARL_OPENROUTER_MODEL=vendor/model \
+        ARL_FORCE_CODEX_FANOUT=1 ARL_GEMINI_BIN=agy-does-not-exist \
+        "$script" "$work/empty.diff" "$emp" "" "$work"
+  ) >/dev/null 2>&1 \
+    && bad "$b accepted a diff file with no patch content" \
+    || ok "$b refuses a diff with no patch content"
+  rmdir "${emp}.lock" 2>/dev/null
+
   # ...and must release its own lock, or the next run is blocked forever.
   rel="$work/rel_$(printf '%s' "$b" | tr -c 'a-zA-Z0-9' '_')"
   (

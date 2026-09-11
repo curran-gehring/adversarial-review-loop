@@ -69,7 +69,7 @@ arl_clear_logs "$OUT" $ARL_LENSES || exit 2
 # REJECTs that read like the reviewer found real bugs.
 command -v "$BIN" >/dev/null 2>&1 || {
   echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
-[ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
+arl_require_diff "$DIFF" || exit 2
 
 PY="$(arl_pick_python)" || {
   echo "gemini-fanout: no working Python found (tried ${ARL_PYTHON:+$ARL_PYTHON }python3 python py); set ARL_PYTHON" >&2; exit 2; }
