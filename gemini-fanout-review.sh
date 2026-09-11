@@ -40,21 +40,10 @@ MODEL="${ARL_GEMINI_MODEL:-gemini-3.1-pro-high}"
 TIMEOUT="${ARL_GEMINI_TIMEOUT:-10m}"
 MAX_BYTES="${ARL_GEMINI_MAX_BYTES:-400000}"
 
-# Make both path arguments absolute BEFORE anything cds or exits.
-#   DIFF: a relative path passes the -f check here and then fails to open from
-#   inside REPO, handing the reviewer an EMPTY diff — and a model with nothing
-#   to criticize can answer APPROVE. A fail-OPEN in a gate whose only job is to
-#   catch bad changes must be impossible by construction, not by convention.
-#   OUT: the mirror image — logs written under REPO while panel-review.sh reads
-#   them from its own directory turn a lens that APPROVED into "no verdict".
-case "$DIFF" in
-  /*) ;;
-  *)  DIFF="$PWD/$DIFF" ;;
-esac
-case "$OUT" in
-  /*) ;;
-  *)  OUT="$PWD/$OUT" ;;
-esac
+# Absolute before anything cds or exits — see the rationale on arl_abs in
+# lenses.sh, which is the single copy all four backends now share.
+DIFF="$(arl_abs "$DIFF")"
+OUT="$(arl_abs "$OUT")"
 
 # Which lenses this invocation runs. The panel runner sets this to a single
 # lens so different lenses can run on different reviewer families; default is
@@ -67,39 +56,30 @@ for _lens in $ARL_LENSES; do
   esac
 done
 
-# Clear the logs this invocation owns BEFORE any preflight check can exit.
-# panel-review.sh only asks whether a VERDICT line exists, and swallows our
-# stderr — so a preflight failure that left the PREVIOUS run's APPROVE in place
-# would silently pass the current diff. The fix-then-rerun loop reuses a single
-# out-prefix by design, which is exactly when that would bite.
-for _lens in $ARL_LENSES; do
-  : > "${OUT}.${_lens}.log"
-done
+# Claim the prefix before touching any log under it. A no-op when a parent
+# runner already holds it — the usual case, since the panel launches us.
+arl_lock_prefix "$OUT" || exit 2
+trap 'arl_unlock_prefix' EXIT
+
+# Clear the logs this invocation owns BEFORE any preflight check can exit, and
+# stop outright if a stale verdict survives — see arl_clear_logs in lenses.sh.
+arl_clear_logs "$OUT" $ARL_LENSES || exit 2
 
 # Fail fast at the boundary: a missing CLI or diff must not surface as three
 # REJECTs that read like the reviewer found real bugs.
 command -v "$BIN" >/dev/null 2>&1 || {
   echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
-[ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
+arl_require_diff "$DIFF" || exit 2
 
-# Pick an interpreter that actually runs, not merely one that resolves. On
-# Windows `python3` is usually the App Execution Alias stub, which sits on PATH,
-# satisfies `command -v`, and then fails at launch with 0x80070003 — turning a
-# broken environment into three REJECTs that look like review findings.
-PY=""
-for _py in ${ARL_PYTHON:-} python3 python py; do
-  [ -n "$_py" ] || continue
-  command -v "$_py" >/dev/null 2>&1 || continue
-  "$_py" -c 'pass' >/dev/null 2>&1 || continue
-  PY="$_py"; break
-done
-[ -n "$PY" ] || {
+PY="$(arl_pick_python)" || {
   echo "gemini-fanout: no working Python found (tried ${ARL_PYTHON:+$ARL_PYTHON }python3 python py); set ARL_PYTHON" >&2; exit 2; }
 
 cd "$REPO" || { echo "gemini-fanout: cannot cd to repo: $REPO" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Replaces the unlock-only trap set above; it must still release the lock, or a
+# standalone run leaks its prefix lock and the next one refuses to start.
+trap 'rm -rf "$tmp"; arl_unlock_prefix' EXIT
 chmod 700 "$tmp"
 
 # --- context: the diff, plus current contents of the files it touches --------

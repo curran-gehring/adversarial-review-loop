@@ -24,3 +24,124 @@ ARL_LENS_UI="Review ONLY UI/view-layer correctness & regressions: view/component
 #   claims; it cannot build the repo and often cannot see the definitions it is
 #   reasoning about. The clause narrows that without forbidding real findings.
 ARL_LENS_RULES="Read ONLY the files this diff touches; do NOT explore unrelated code. Be concise, but ALWAYS state briefly what you checked and what you found before the verdict — a bare verdict with no reasoning is not a review, and will be treated as a failed one. You CANNOT build the repo here and you are seeing only part of it: do NOT assert a compile, type, or conformance error unless the diff itself plainly introduces it AND you can name the exact symbol and the rule it breaks. Remember that definitions, extensions and imports may live outside this diff, and that conformances are often synthesized rather than written (Swift derives Hashable/Equatable/Codable for enums with raw values and for structs whose members conform). If you are unsure whether something compiles, raise it as a question in your reasoning rather than as a REJECT. Reserve REJECT for a defect you can point at. End with a final line that is EXACTLY one of: 'VERDICT: APPROVE' or 'VERDICT: REJECT -- <one-line reason>'."
+
+# --- shared safety preamble -------------------------------------------------
+# Every backend takes <diff_path> <out_prefix> and then cds to the repo. Both
+# paths must therefore be made absolute BEFORE that cd, and the two reasons are
+# not symmetric:
+#
+#   DIFF relative -> fails to open from inside the repo, and neither `cat` nor
+#   `awk` failing aborts under `set -u`. The reviewer receives an EMPTY diff,
+#   and a model with nothing to criticize can answer APPROVE. That is a
+#   fail-OPEN in a gate whose only job is to catch bad changes.
+#
+#   OUT relative -> logs land under the repo while the caller reads them from
+#   its own directory, so a lens that genuinely APPROVED is scored as "produced
+#   no verdict". Fails closed, but costs a whole review round to diagnose.
+#
+# These live here, beside the lens prompts, for the same stated reason those do:
+# several drifting copies of a safety gate's argument handling is how the gate
+# quietly stops protecting one of its backends.
+
+# arl_abs <path> — print <path> resolved against $PWD if it is relative.
+# Git Bash passes Windows-style absolute paths through unchanged, so C:/x and
+# C:\x must count as absolute; treating them as relative would produce
+# "$PWD/C:/x" and silently lose the file.
+arl_abs() {
+  case "$1" in
+    /*|[A-Za-z]:[/\\]*) printf '%s\n' "$1" ;;
+    *)                  printf '%s/%s\n' "$PWD" "$1" ;;
+  esac
+}
+
+# arl_pick_python — print the first interpreter that actually RUNS.
+# Resolving is not enough: on Windows `python3` is usually the App Execution
+# Alias stub, which satisfies `command -v` and then fails at launch with
+# 0x80070003. Trusting it turns a broken environment into three REJECTs that
+# read like real review findings. ARL_PYTHON overrides the search.
+arl_pick_python() {
+  _arl_py=""
+  for _arl_cand in ${ARL_PYTHON:-} python3 python py; do
+    [ -n "$_arl_cand" ] || continue
+    command -v "$_arl_cand" >/dev/null 2>&1 || continue
+    "$_arl_cand" -c 'pass' >/dev/null 2>&1 || continue
+    _arl_py="$_arl_cand"; break
+  done
+  [ -n "$_arl_py" ] || return 1
+  printf '%s\n' "$_arl_py"
+}
+
+# arl_clear_logs <out_prefix> <lens>... — clear the lens logs this invocation
+# owns, and return non-zero if a previous run's verdict survives.
+#
+# Must be called BEFORE any preflight check that can exit. Callers ask only
+# whether a VERDICT line exists and suppress the backend's stderr, so a stale
+# `VERDICT: APPROVE` left behind by an early exit is read as this run's verdict
+# — passing a diff nobody reviewed. The fix-then-rerun loop reuses one
+# out-prefix by design, which is exactly when that happens.
+#
+# Verifying rather than trusting the truncation is the point: `: >` can fail on
+# a read-only parent, and `|| true` would turn that into a silent fail-open.
+# arl_lock_prefix <out_prefix> — take an exclusive lock on an out-prefix.
+# arl_unlock_prefix                — release it (call from an EXIT trap).
+#
+# Two runs sharing one prefix interleave their lens logs, and the aggregate is
+# then read from a mixture of both — which can approve the wrong diff. The
+# canonical entry point (review-gate.sh) uses mktemp so its runs never collide,
+# and the documented protocol is one diff at a time, so this only bites when a
+# prefix is passed by hand twice. Cheap to make impossible, though, and the
+# failure it prevents is silent.
+#
+# mkdir is the lock because it is atomic on every filesystem we care about. The
+# top-level runner locks and exports ARL_PREFIX_LOCK_HELD so the backends it
+# launches under the same prefix do not deadlock against their own parent.
+#
+# That variable holds the PREFIX, not a boolean. A bare flag would disable
+# locking for any prefix once set — so a value inherited from an unrelated
+# parent, or left in an interactive shell by a crashed run, would silently turn
+# locking off for every standalone review afterwards. Naming the prefix means an
+# inherited value can only ever suppress the lock it actually describes.
+arl_lock_prefix() {
+  [ "${ARL_PREFIX_LOCK_HELD:-}" != "$1" ] || return 0
+  ARL_PREFIX_LOCK_DIR="$1.lock"
+  if ! mkdir "$ARL_PREFIX_LOCK_DIR" 2>/dev/null; then
+    echo "arl: another review already holds the out-prefix $1" >&2
+    echo "arl: give this run a different out-prefix, or remove $ARL_PREFIX_LOCK_DIR if a previous run crashed." >&2
+    ARL_PREFIX_LOCK_DIR=""
+    return 1
+  fi
+  ARL_PREFIX_LOCK_HELD="$1"
+  export ARL_PREFIX_LOCK_HELD
+}
+
+arl_unlock_prefix() {
+  [ -n "${ARL_PREFIX_LOCK_DIR:-}" ] || return 0
+  rmdir "$ARL_PREFIX_LOCK_DIR" 2>/dev/null || true
+  ARL_PREFIX_LOCK_DIR=""
+}
+
+# arl_require_diff <path> — the diff must exist AND contain patch content.
+#
+# `[ -f ]` alone passes a zero-byte or truncated file, which then reaches the
+# reviewer as an empty diff — and a model with nothing to criticize can answer
+# APPROVE. Same fail-open as a relative path that failed to open, reached by a
+# different route: an interrupted `git diff > file`, a diff of an empty range,
+# or an scp that produced the file before its contents.
+arl_require_diff() {
+  [ -f "$1" ] || { echo "arl: no such diff: $1" >&2; return 1; }
+  grep -qE '^(diff --git |--- |\+\+\+ |@@ )' "$1" 2>/dev/null || {
+    echo "arl: $1 contains no diff content; refusing to review nothing" >&2
+    return 1; }
+}
+
+arl_clear_logs() {
+  _arl_out="$1"; shift
+  for _arl_lens in "$@"; do
+    _arl_log="${_arl_out}.${_arl_lens}.log"
+    : > "$_arl_log" 2>/dev/null || rm -f "$_arl_log" 2>/dev/null || true
+    if [ -e "$_arl_log" ] && grep -qE '^[[:space:]]*VERDICT[[:space:]]*:' "$_arl_log" 2>/dev/null; then
+      echo "arl: cannot clear a stale verdict in $_arl_log; refusing to run" >&2
+      return 1
+    fi
+  done
+}
