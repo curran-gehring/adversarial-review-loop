@@ -108,5 +108,17 @@ else
   ok "panel clears stale lens logs before dispatching"
 fi
 
+# ...and a spec that fails validation must clear them too, since validation
+# exits before any backend is launched.
+out4="$work/stalebad"
+printf 'earlier run\nVERDICT: APPROVE\n' > "${out4}.data.log"
+ARL_PANEL="correctness=nosuchbackend:x,data=codex:y,ui=codex:z" \
+  bash "$panel" "$work/d.diff" "$out4" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'earlier run' "${out4}.data.log" 2>/dev/null; then
+  bad "invalid panel spec left a stale APPROVE behind"
+else
+  ok "invalid panel spec still clears stale lens logs"
+fi
+
 printf '\n'
 [ "$fails" -eq 0 ] && { echo "panel: ALL PASS"; exit 0; } || { echo "panel: $fails FAILURE(S)"; exit 1; }
