@@ -117,12 +117,16 @@ if command -v arl_clear_logs >/dev/null 2>&1; then
   # And it must REFUSE when a stale verdict cannot be removed. Only meaningful
   # where the filesystem actually enforces directory write permission, so the
   # precondition is verified rather than assumed.
+  # Both locks are needed: truncation is denied by the FILE's mode, removal by
+  # the DIRECTORY's. Locking only the directory leaves `: >` working, which is
+  # why this assertion silently skipped on macOS the first time around.
   rodir="$work/ro"; mkdir -p "$rodir"
   printf 'VERDICT: APPROVE\n' > "$rodir/x.data.log"
+  chmod 444 "$rodir/x.data.log" 2>/dev/null
   chmod 555 "$rodir" 2>/dev/null
   if : > "$rodir/x.data.log" 2>/dev/null || rm -f "$rodir/x.data.log" 2>/dev/null; then
     chmod 755 "$rodir" 2>/dev/null
-    ok "(skipped: this filesystem does not enforce directory write permission)"
+    ok "(skipped: this filesystem does not enforce write permission)"
   else
     if arl_clear_logs "$rodir/x" data 2>/dev/null; then
       bad "arl_clear_logs returned success while a stale APPROVE survived"
