@@ -38,7 +38,13 @@ export ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"
 export ARL_GEMINI_MODEL="${ARL_GEMINI_MODEL:-gemini-3.1-pro-high}"
 
 # Escape hatches, all preserving the same log/VERDICT contract:
-#   ARL_GATE=single  -> all three lenses on one codex model
+#   ARL_GATE=single  -> all three lenses on ONE model, chosen to be a different
+#                       family from whoever is writing the code: fanout-review.sh
+#                       sends a Claude author to codex and a codex author to
+#                       Claude. It is not "always codex" — that would hand the
+#                       review to the same family that wrote the diff, which is
+#                       the single-model blind spot the panel exists to avoid.
+#                       Set ARL_FORCE_CODEX_FANOUT=1 to pin codex regardless.
 #   ARL_GATE=nocodex -> codex-free panel (see below)
 #   ARL_PANEL=...    -> reassign lenses, e.g. escalate one to x-ai/grok-4.6
 # Use ARL_GATE=single if OpenRouter is down or unfunded — the panel FAILS CLOSED
