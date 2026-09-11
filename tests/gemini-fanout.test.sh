@@ -241,6 +241,21 @@ else
   bad "relative out prefix wrote logs where the caller cannot read them"
 fi
 
+# --- 14. a preflight failure must not leave a previous run's APPROVE behind
+# panel-review.sh only checks whether a VERDICT line exists, and swallows the
+# backend's stderr. So if this invocation dies in preflight (missing CLI, no
+# working Python, unreadable diff) without clearing the logs it owns, the panel
+# reads the PREVIOUS run's APPROVE and passes the current diff. The fix-then-
+# rerun loop reuses one out-prefix by design, which is exactly when this bites.
+outp="$work/stale"
+printf 'from an earlier, passing run\nVERDICT: APPROVE\n' > "${outp}.data.log"
+run_fanout "$outp" ARL_LENSES=data ARL_GEMINI_BIN=agy-does-not-exist >/dev/null 2>&1
+if grep -qE '^[[:space:]]*VERDICT[[:space:]]*:[[:space:]]*APPROVE' "${outp}.data.log" 2>/dev/null; then
+  bad "preflight failure left a stale APPROVE the panel would accept"
+else
+  ok "preflight failure clears the stale verdict it would otherwise inherit"
+fi
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'gemini-fanout: ALL PASS\n'; exit 0

@@ -40,29 +40,47 @@ MODEL="${ARL_GEMINI_MODEL:-gemini-3.1-pro-high}"
 TIMEOUT="${ARL_GEMINI_TIMEOUT:-10m}"
 MAX_BYTES="${ARL_GEMINI_MAX_BYTES:-400000}"
 
-# Fail fast at the boundary: a missing CLI or diff must not surface as three
-# REJECTs that read like the reviewer found real bugs.
-command -v "$BIN" >/dev/null 2>&1 || {
-  echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
-
-# Resolve the diff to an absolute path BEFORE the cd below. A relative path
-# passes the -f check here and then fails to open from inside REPO, which would
-# hand the reviewer an EMPTY diff — and a model with nothing to criticize can
-# answer APPROVE. That is a fail-OPEN in a gate whose only job is to catch bad
-# changes, so it must be impossible by construction rather than by convention.
+# Make both path arguments absolute BEFORE anything cds or exits.
+#   DIFF: a relative path passes the -f check here and then fails to open from
+#   inside REPO, handing the reviewer an EMPTY diff — and a model with nothing
+#   to criticize can answer APPROVE. A fail-OPEN in a gate whose only job is to
+#   catch bad changes must be impossible by construction, not by convention.
+#   OUT: the mirror image — logs written under REPO while panel-review.sh reads
+#   them from its own directory turn a lens that APPROVED into "no verdict".
 case "$DIFF" in
   /*) ;;
   *)  DIFF="$PWD/$DIFF" ;;
 esac
-[ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
-
-# Same treatment for the output prefix, for the mirror-image reason: logs written
-# under REPO while panel-review.sh reads them from its own directory turn a lens
-# that genuinely APPROVED into "produced no verdict" — a false REJECT.
 case "$OUT" in
   /*) ;;
   *)  OUT="$PWD/$OUT" ;;
 esac
+
+# Which lenses this invocation runs. The panel runner sets this to a single
+# lens so different lenses can run on different reviewer families; default is
+# all three, so every existing caller is unaffected.
+ARL_LENSES="${ARL_LENSES:-correctness data ui}"
+for _lens in $ARL_LENSES; do
+  case "$_lens" in
+    correctness|data|ui) ;;
+    *) echo "gemini-fanout: unknown lens: $_lens" >&2; exit 2 ;;
+  esac
+done
+
+# Clear the logs this invocation owns BEFORE any preflight check can exit.
+# panel-review.sh only asks whether a VERDICT line exists, and swallows our
+# stderr — so a preflight failure that left the PREVIOUS run's APPROVE in place
+# would silently pass the current diff. The fix-then-rerun loop reuses a single
+# out-prefix by design, which is exactly when that would bite.
+for _lens in $ARL_LENSES; do
+  : > "${OUT}.${_lens}.log"
+done
+
+# Fail fast at the boundary: a missing CLI or diff must not surface as three
+# REJECTs that read like the reviewer found real bugs.
+command -v "$BIN" >/dev/null 2>&1 || {
+  echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
+[ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
 
 # Pick an interpreter that actually runs, not merely one that resolves. On
 # Windows `python3` is usually the App Execution Alias stub, which sits on PATH,
@@ -79,11 +97,6 @@ done
   echo "gemini-fanout: no working Python found (tried ${ARL_PYTHON:+$ARL_PYTHON }python3 python py); set ARL_PYTHON" >&2; exit 2; }
 
 cd "$REPO" || { echo "gemini-fanout: cannot cd to repo: $REPO" >&2; exit 2; }
-
-# Which lenses this invocation runs. The panel runner sets this to a single
-# lens so different lenses can run on different reviewer families; default is
-# all three, so every existing caller is unaffected.
-ARL_LENSES="${ARL_LENSES:-correctness data ui}"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -188,13 +201,11 @@ sys.stdout.write(result.get("response") or "")
     || printf '\nVERDICT: REJECT -- gemini %s lens emitted no verdict\n' "$name" >> "$log"
 }
 
-for _lens in $ARL_LENSES; do
-  : > "${OUT}.${_lens}.log"          # only the logs THIS invocation owns
+for _lens in $ARL_LENSES; do          # names validated, logs cleared, above
   case "$_lens" in
     correctness) run correctness "$ARL_LENS_CORRECTNESS" & ;;
     data)        run data        "$ARL_LENS_DATA" & ;;
     ui)          run ui          "$ARL_LENS_UI" & ;;
-    *) echo "gemini-fanout: unknown lens: $_lens" >&2; exit 2 ;;
   esac
 done
 wait
