@@ -92,11 +92,17 @@ arl_pick_python() {
 # prefix is passed by hand twice. Cheap to make impossible, though, and the
 # failure it prevents is silent.
 #
-# mkdir is the lock because it is atomic on every filesystem we care about. Only
-# the top-level runner locks; it exports ARL_PREFIX_LOCK_HELD so the backends it
+# mkdir is the lock because it is atomic on every filesystem we care about. The
+# top-level runner locks and exports ARL_PREFIX_LOCK_HELD so the backends it
 # launches under the same prefix do not deadlock against their own parent.
+#
+# That variable holds the PREFIX, not a boolean. A bare flag would disable
+# locking for any prefix once set — so a value inherited from an unrelated
+# parent, or left in an interactive shell by a crashed run, would silently turn
+# locking off for every standalone review afterwards. Naming the prefix means an
+# inherited value can only ever suppress the lock it actually describes.
 arl_lock_prefix() {
-  [ -z "${ARL_PREFIX_LOCK_HELD:-}" ] || return 0
+  [ "${ARL_PREFIX_LOCK_HELD:-}" != "$1" ] || return 0
   ARL_PREFIX_LOCK_DIR="$1.lock"
   if ! mkdir "$ARL_PREFIX_LOCK_DIR" 2>/dev/null; then
     echo "arl: another review already holds the out-prefix $1" >&2
@@ -104,7 +110,7 @@ arl_lock_prefix() {
     ARL_PREFIX_LOCK_DIR=""
     return 1
   fi
-  ARL_PREFIX_LOCK_HELD=1
+  ARL_PREFIX_LOCK_HELD="$1"
   export ARL_PREFIX_LOCK_HELD
 }
 

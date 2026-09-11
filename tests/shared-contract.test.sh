@@ -159,9 +159,18 @@ if command -v arl_lock_prefix >/dev/null 2>&1; then
     ok "arl_lock_prefix refuses a prefix another run holds"
   fi
   # A backend launched by the panel must not deadlock against its own parent.
-  ( ARL_PREFIX_LOCK_HELD=1; arl_lock_prefix "$lpfx" ) >/dev/null 2>&1 \
-    && ok "arl_lock_prefix is a no-op when a parent runner holds the lock" \
+  ( ARL_PREFIX_LOCK_HELD="$lpfx"; arl_lock_prefix "$lpfx" ) >/dev/null 2>&1 \
+    && ok "arl_lock_prefix is a no-op when a parent runner holds THIS prefix" \
     || bad "arl_lock_prefix blocked a child whose parent holds the lock"
+
+  # But an inherited value naming a DIFFERENT prefix must not disable locking.
+  # A boolean flag would: one stray export in a shell, or a value inherited from
+  # an unrelated parent, and every standalone review afterwards runs unlocked.
+  if ( ARL_PREFIX_LOCK_HELD="/some/other/prefix"; arl_lock_prefix "$lpfx" ) >/dev/null 2>&1; then
+    bad "an inherited lock flag for another prefix disabled locking"
+  else
+    ok "an inherited lock flag for another prefix does not disable locking"
+  fi
   rmdir "${lpfx}.lock" 2>/dev/null
 else
   bad "lenses.sh does not expose arl_lock_prefix"
