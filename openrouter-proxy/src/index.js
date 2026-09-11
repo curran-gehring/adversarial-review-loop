@@ -19,8 +19,10 @@
 
 const UPSTREAM = "https://openrouter.ai/api/v1/chat/completions";
 const PATH = "/api/v1/chat/completions";
-/// Used when MAX_TOKENS is unset or malformed. Never left to NaN.
-const DEFAULT_MAX_TOKENS = 4000;
+/// Used when MAX_TOKENS is unset or malformed. Never left to NaN. Kept in step
+/// with wrangler.toml's MAX_TOKENS: a fallback that silently truncates is the
+/// same bug as a var that does, just harder to spot.
+const DEFAULT_MAX_TOKENS = 16000;
 
 /// Constant-time compare. A plain === leaks the token a character at a time to
 /// anyone who can measure the response, and this endpoint spends money.

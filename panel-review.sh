@@ -20,13 +20,15 @@
 # Each found a real shipped bug the other missed. Both bugs are in main today.
 #
 # CONFIG — ARL_PANEL, comma-separated "lens=backend:model":
-#   ARL_PANEL="correctness=codex:gpt-5.6-luna,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash"
+#   ARL_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
 # Backends: codex (ChatGPT subscription, reads the repo), claude (Claude
+# subscription), gemini (Antigravity CLI on the Google AI Pro/Ultra
 # subscription), openrouter (metered; needs OPENROUTER_API_KEY).
 #
-# Keeping a lens on `codex` matters economically: that arm runs on a flat-rate
-# subscription, so a mixed panel costs roughly what the OpenRouter lenses alone
-# cost (~$0.07/run for two Gemini lenses) rather than paying for all three.
+# The default panel is now entirely flat-rate: the Gemini lenses moved from
+# openrouter to the `gemini` backend on 2026-09-11, which buys the same
+# cross-family independence for $0/run instead of ~$0.07. openrouter is kept
+# for models no subscription covers.
 #
 # A lens absent from ARL_PANEL FAILS CLOSED. An unreviewed lens is a failed
 # review, not a pass — the same rule the individual backends follow.
@@ -38,7 +40,29 @@ OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
 REPO="${4:-$PWD}"
 
-DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash"
+# Clear every lens log FIRST — before the diff check, before spec validation,
+# before anything at all that can exit. The check at the bottom asks only
+# whether a VERDICT line exists, and each backend is launched with its output
+# suppressed, so ANY early exit that leaves the previous run's log in place lets
+# that run's `VERDICT: APPROVE` be read as this one's, passing a diff nobody
+# reviewed. Backends clear the logs they own too, but only the panel can
+# guarantee it, because only the panel sees whether a backend ran at all.
+# The fix-then-rerun loop reuses one out-prefix by design, which is exactly when
+# a stale approval is sitting there waiting to be inherited.
+#
+# This must stay the first executable statement after the arguments are read.
+# Three separate review rounds found this same hole one line further up each
+# time; putting it at the very top is what actually closes the class.
+for lens in correctness data ui; do
+  log="${OUT}.${lens}.log"
+  : > "$log" 2>/dev/null || rm -f "$log" 2>/dev/null || true
+  if [ -e "$log" ] && grep -qE '^[[:space:]]*VERDICT[[:space:]]*:' "$log" 2>/dev/null; then
+    echo "panel-review: cannot clear a stale verdict in $log; refusing to run" >&2
+    exit 2
+  fi
+done
+
+DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
 
 [ -f "$DIFF" ] || { echo "panel-review: no such diff: $DIFF" >&2; exit 2; }
@@ -56,13 +80,16 @@ for entry in $PANEL; do
     *) echo "panel-review: unknown lens '$lens' in ARL_PANEL" >&2; exit 2 ;;
   esac
   case "$backend" in
-    codex|claude|openrouter) ;;
-    *) echo "panel-review: unknown backend '$backend' for lens '$lens' (codex|claude|openrouter)" >&2; exit 2 ;;
+    codex|claude|openrouter|gemini) ;;
+    *) echo "panel-review: unknown backend '$backend' for lens '$lens' (codex|claude|openrouter|gemini)" >&2; exit 2 ;;
   esac
   [ -n "$model" ] && [ "$model" != "$rest" ] \
     || { echo "panel-review: lens '$lens' has no model (expected backend:model)" >&2; exit 2; }
   if [ "$backend" = "openrouter" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
     echo "panel-review: lens '$lens' uses openrouter but OPENROUTER_API_KEY is not set" >&2; exit 2
+  fi
+  if [ "$backend" = "gemini" ] && ! command -v "${ARL_GEMINI_BIN:-agy}" >/dev/null 2>&1; then
+    echo "panel-review: lens '$lens' uses gemini but '${ARL_GEMINI_BIN:-agy}' is not on PATH (winget install Google.AntigravityCLI)" >&2; exit 2
   fi
   case " $assigned " in
     *" $lens "*) echo "panel-review: lens '$lens' assigned twice" >&2; exit 2 ;;
@@ -82,6 +109,7 @@ for entry in $PANEL; do
     codex)      script="$here/fanout-review.sh";            var=ARL_CODEX_MODEL;      extra_env="ARL_FORCE_CODEX_FANOUT=1" ;;
     claude)     script="$here/claude-fanout-review.sh";     var=ARL_CLAUDE_MODEL;     extra_env="ARL_NOOP=1" ;;
     openrouter) script="$here/openrouter-fanout-review.sh"; var=ARL_OPENROUTER_MODEL; extra_env="ARL_NOOP=1" ;;
+    gemini)     script="$here/gemini-fanout-review.sh";     var=ARL_GEMINI_MODEL;     extra_env="ARL_NOOP=1" ;;
   esac
   env ARL_LENSES="$lens" "$extra_env" "$var=$model" \
     "$script" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
