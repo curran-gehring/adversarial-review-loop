@@ -93,5 +93,42 @@ else
   ok "unknown backend rejected up front"
 fi
 
+# a stale APPROVE from a previous run must never be inherited by this one.
+# The panel checks only for the presence of a VERDICT line and suppresses each
+# backend's output, so a backend dying in preflight would otherwise hand the
+# prior run's approval to the current diff. The fix-then-rerun loop reuses one
+# out-prefix, which is exactly when this happens.
+out3="$work/stale"
+printf 'from an earlier, passing run\nVERDICT: APPROVE\n' > "${out3}.data.log"
+ARL_PANEL="correctness=codex:gpt-5.6-luna,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash" \
+  bash "$panel" "$work/d.diff" "$out3" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'from an earlier, passing run' "${out3}.data.log" 2>/dev/null; then
+  bad "panel inherited a stale log from a previous run"
+else
+  ok "panel clears stale lens logs before dispatching"
+fi
+
+# ...and a spec that fails validation must clear them too, since validation
+# exits before any backend is launched.
+out4="$work/stalebad"
+printf 'earlier run\nVERDICT: APPROVE\n' > "${out4}.data.log"
+ARL_PANEL="correctness=nosuchbackend:x,data=codex:y,ui=codex:z" \
+  bash "$panel" "$work/d.diff" "$out4" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'earlier run' "${out4}.data.log" 2>/dev/null; then
+  bad "invalid panel spec left a stale APPROVE behind"
+else
+  ok "invalid panel spec still clears stale lens logs"
+fi
+
+# ...and so must a missing diff, the earliest exit of all.
+out5="$work/stalenodiff"
+printf 'earlier run\nVERDICT: APPROVE\n' > "${out5}.data.log"
+bash "$panel" "$work/does-not-exist.diff" "$out5" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'earlier run' "${out5}.data.log" 2>/dev/null; then
+  bad "a missing diff left a stale APPROVE behind"
+else
+  ok "a missing diff still clears stale lens logs"
+fi
+
 printf '\n'
 [ "$fails" -eq 0 ] && { echo "panel: ALL PASS"; exit 0; } || { echo "panel: $fails FAILURE(S)"; exit 1; }

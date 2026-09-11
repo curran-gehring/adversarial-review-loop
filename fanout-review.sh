@@ -41,6 +41,9 @@ detect_primary_model() {
 if [ "${ARL_FANOUT_BACKEND:-}" = "openrouter" ]; then
   exec "$here/openrouter-fanout-review.sh" "$@"
 fi
+if [ "${ARL_FANOUT_BACKEND:-}" = "gemini" ]; then
+  exec "$here/gemini-fanout-review.sh" "$@"
+fi
 
 if [ "${ARL_FORCE_CODEX_FANOUT:-}" != "1" ] && [ "$(detect_primary_model)" = "codex" ]; then
   exec "$here/claude-fanout-review.sh" "$@"
