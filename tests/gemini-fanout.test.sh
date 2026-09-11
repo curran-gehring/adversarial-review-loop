@@ -256,6 +256,31 @@ else
   ok "preflight failure clears the stale verdict it would otherwise inherit"
 fi
 
+# --- 15. touched paths containing spaces must still be inlined -------------
+# The +++ line was parsed with awk's $2, which stops at the first space, so
+# "b/My Folder/File.swift" resolved to "b/My" and the file was silently dropped
+# from the context. The diff still reached the reviewer, so this degrades the
+# review rather than opening the gate — but it degrades it invisibly.
+: > "$ARL_STUB_STDIN"
+mkdir -p "$repo/Spaced Dir"
+# SPACED_FILE_MARKER must appear ONLY in the file on disk, never in the diff --
+# the whole diff is cat'd into the context, so a marker present in both proves
+# nothing about whether the file itself was inlined.
+printf 'let spaced = 1\nlet only_in_the_file = "SPACED_FILE_MARKER"\n' \
+  > "$repo/Spaced Dir/My File.swift"
+cat > "$work/spaced.diff" <<'DIFF'
+diff --git a/Spaced Dir/My File.swift b/Spaced Dir/My File.swift
+--- a/Spaced Dir/My File.swift
++++ b/Spaced Dir/My File.swift
+@@ -0,0 +1 @@
++let spaced = 1
+DIFF
+( cd "$work" && env ARL_LENSES=data "$fanout" "$work/spaced.diff" "$work/spaced" "ctx" "$repo" ) \
+  >/dev/null 2>&1
+grep -q 'SPACED_FILE_MARKER' "$ARL_STUB_STDIN" \
+  && ok "inlines touched files whose paths contain spaces" \
+  || bad "dropped a touched file because its path contains a space"
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'gemini-fanout: ALL PASS\n'; exit 0

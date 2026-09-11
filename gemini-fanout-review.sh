@@ -110,7 +110,16 @@ ctx="$tmp/context.txt"
 
   budget="$MAX_BYTES"
   # Paths from the "+++ b/path" lines; /dev/null marks a deletion.
-  awk '/^\+\+\+ /{p=$2; sub(/^b\//,"",p); if (p != "/dev/null") print p}' "$DIFF" \
+  # Taken from the rest of the line rather than $2, which stops at the first
+  # space and would silently drop "b/My Folder/File.swift" from the context.
+  awk '/^\+\+\+ /{
+         p = $0
+         sub(/^\+\+\+ /, "", p)     # strip the marker
+         sub(/\t.*$/,    "", p)     # strip a trailing timestamp, if any
+         if (p == "/dev/null") next
+         sub(/^b\//, "", p)
+         print p
+       }' "$DIFF" \
     | sort -u | while IFS= read -r f; do
       [ -f "$f" ] || continue
       size=$(wc -c < "$f" | tr -d ' ')
