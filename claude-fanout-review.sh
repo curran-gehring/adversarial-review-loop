@@ -27,17 +27,22 @@ REPO="${4:-$PWD}"
 # to open here sends an EMPTY diff to a model that can answer APPROVE.
 DIFF="$(arl_abs "$DIFF")"
 OUT="$(arl_abs "$OUT")"
+
+# Which lenses this invocation runs. The panel runner sets this to a single
+# lens so different lenses can run on different reviewer families; default is
+# all three, so every existing caller is unaffected.
+ARL_LENSES="${ARL_LENSES:-correctness data ui}"
+
+# Clear them before anything below can exit, and stop if a stale verdict
+# survives — see arl_clear_logs in lenses.sh.
+arl_clear_logs "$OUT" $ARL_LENSES || exit 1
+
 [ -f "$DIFF" ] || { echo "claude-fanout-review: no such diff: $DIFF" >&2; exit 1; }
 
 cd "$REPO" || { echo "claude-fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
 CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-claude-fable-5}"
 CLAUDE_TIMEOUT="${ARL_CLAUDE_TIMEOUT:-600}"
-
-# Which lenses this invocation runs. The panel runner sets this to a single
-# lens so different lenses can run on different reviewer families; default is
-# all three, so every existing caller is unaffected.
-ARL_LENSES="${ARL_LENSES:-correctness data ui}"
 
 C="$ARL_LENS_CORRECTNESS"
 D="$ARL_LENS_DATA"

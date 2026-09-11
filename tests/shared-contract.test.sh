@@ -140,6 +140,34 @@ if command -v arl_clear_logs >/dev/null 2>&1; then
   fi
 fi
 
+# --- every backend must behave the same on a preflight failure -------------
+# This is the parity assertion. Each fix in this area historically landed in one
+# backend and was assumed to cover the rest; it never did. Asserting the whole
+# set at once is the only version of this test that stays true.
+#
+# A nonexistent diff is the common preflight failure: every backend checks it,
+# and every backend must already have cleared its logs by then.
+backends="openrouter-fanout-review.sh claude-fanout-review.sh fanout-review.sh gemini-fanout-review.sh"
+for b in $backends; do
+  script="$here/../$b"
+  [ -f "$script" ] || { bad "$b is missing"; continue; }
+  pfx="$work/pre_$(printf '%s' "$b" | tr -c 'a-zA-Z0-9' '_')"
+  printf 'from an earlier, passing run\nVERDICT: APPROVE\n' > "${pfx}.data.log"
+  (
+    cd "$work" || exit 1
+    env ARL_LENSES=data \
+        OPENROUTER_API_KEY=sk-test ARL_OPENROUTER_MODEL=vendor/model \
+        ARL_FORCE_CODEX_FANOUT=1 \
+        ARL_GEMINI_BIN=agy-does-not-exist \
+        "$script" "$work/definitely-missing.diff" "$pfx" "" "$work"
+  ) >/dev/null 2>&1
+  if grep -q 'from an earlier, passing run' "${pfx}.data.log" 2>/dev/null; then
+    bad "$b left a stale APPROVE after a preflight failure"
+  else
+    ok "$b clears stale verdicts before preflight"
+  fi
+done
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'shared-contract: ALL PASS\n'; exit 0

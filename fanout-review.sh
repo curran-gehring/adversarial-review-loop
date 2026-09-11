@@ -57,14 +57,19 @@ REPO="${4:-$PWD}"   # default: current directory; pass the repo so codex can rea
 # Absolute before the cd — see the rationale on arl_abs in lenses.sh.
 DIFF="$(arl_abs "$DIFF")"
 OUT="$(arl_abs "$OUT")"
-[ -f "$DIFF" ] || { echo "fanout-review: no such diff: $DIFF" >&2; exit 1; }
-
-cd "$REPO" || { echo "fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
 # Which lenses this invocation runs. The panel runner sets this to a single
 # lens so different lenses can run on different reviewer families; default is
 # all three, so every existing caller is unaffected.
 ARL_LENSES="${ARL_LENSES:-correctness data ui}"
+
+# Clear them before anything below can exit, and stop if a stale verdict
+# survives — see arl_clear_logs in lenses.sh.
+arl_clear_logs "$OUT" $ARL_LENSES || exit 1
+
+[ -f "$DIFF" ] || { echo "fanout-review: no such diff: $DIFF" >&2; exit 1; }
+
+cd "$REPO" || { echo "fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
 C="$ARL_LENS_CORRECTNESS"
 D="$ARL_LENS_DATA"
