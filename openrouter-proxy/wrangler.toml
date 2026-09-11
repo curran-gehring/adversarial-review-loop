@@ -11,8 +11,12 @@ enabled = true
 # oversight. The correctness lens runs on codex against a ChatGPT subscription
 # and never touches this worker.
 ALLOWED_MODELS = "google/gemini-3.8-flash"
-# Reviews return a short verdict plus reasoning; they do not need a long tail.
-MAX_TOKENS = "4000"
+# Raised 4000 -> 16000 on 2026-09-10. At 4000 the data lens was truncated mid-
+# reasoning on diffs over about 900 lines and never reached its VERDICT line, so
+# the harness recorded a synthetic REJECT and the gate silently degraded to two
+# lenses. Fails safe, but indistinguishable from a real finding without reading
+# the log body.
+MAX_TOKENS = "16000"
 
 # 30 requests/min per IP. A panel run is 2 OpenRouter calls, so this is ~15
 # concurrent reviews — far above real use, low enough to bound a runaway loop.
