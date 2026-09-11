@@ -227,6 +227,20 @@ else
   ok "never reviews an empty diff silently"
 fi
 
+# --- 13. a relative output prefix must land where the caller expects -------
+# Same failure class as the diff path, opposite direction: OUT resolved under
+# REPO after the cd means panel-review.sh writes and reads different files, so a
+# lens that actually APPROVED is scored as "produced no verdict" — a false
+# REJECT that costs a whole review round to diagnose.
+rm -rf "$work/outrel"; mkdir -p "$work/outrel"
+( cd "$work/outrel" && env ARL_LENSES=data "$fanout" "$work/change.diff" "relout" "ctx" "$repo" ) \
+  >/dev/null 2>&1
+if [ -f "$work/outrel/relout.data.log" ]; then
+  ok "relative out prefix resolves against the caller's directory"
+else
+  bad "relative out prefix wrote logs where the caller cannot read them"
+fi
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'gemini-fanout: ALL PASS\n'; exit 0

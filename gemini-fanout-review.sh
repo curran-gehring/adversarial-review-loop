@@ -56,6 +56,14 @@ case "$DIFF" in
 esac
 [ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
 
+# Same treatment for the output prefix, for the mirror-image reason: logs written
+# under REPO while panel-review.sh reads them from its own directory turn a lens
+# that genuinely APPROVED into "produced no verdict" — a false REJECT.
+case "$OUT" in
+  /*) ;;
+  *)  OUT="$PWD/$OUT" ;;
+esac
+
 # Pick an interpreter that actually runs, not merely one that resolves. On
 # Windows `python3` is usually the App Execution Alias stub, which sits on PATH,
 # satisfies `command -v`, and then fails at launch with 0x80070003 — turning a
