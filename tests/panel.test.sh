@@ -120,5 +120,15 @@ else
   ok "invalid panel spec still clears stale lens logs"
 fi
 
+# ...and so must a missing diff, the earliest exit of all.
+out5="$work/stalenodiff"
+printf 'earlier run\nVERDICT: APPROVE\n' > "${out5}.data.log"
+bash "$panel" "$work/does-not-exist.diff" "$out5" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'earlier run' "${out5}.data.log" 2>/dev/null; then
+  bad "a missing diff left a stale APPROVE behind"
+else
+  ok "a missing diff still clears stale lens logs"
+fi
+
 printf '\n'
 [ "$fails" -eq 0 ] && { echo "panel: ALL PASS"; exit 0; } || { echo "panel: $fails FAILURE(S)"; exit 1; }

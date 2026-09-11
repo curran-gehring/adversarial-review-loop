@@ -40,20 +40,19 @@ OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
 REPO="${4:-$PWD}"
 
-DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
-PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
-
-[ -f "$DIFF" ] || { echo "panel-review: no such diff: $DIFF" >&2; exit 2; }
-
-# Clear every lens log BEFORE anything else can exit — including the spec
-# validation below. The check at the bottom asks only whether a VERDICT line
-# exists, and each backend is launched with its output suppressed, so any early
-# exit that leaves the PREVIOUS run's log in place lets that run's
-# `VERDICT: APPROVE` be read as this one's, passing a diff nobody reviewed.
-# Backends clear the logs they own too, but only the panel can guarantee it,
-# because only the panel sees whether a backend ran at all.
+# Clear every lens log FIRST — before the diff check, before spec validation,
+# before anything at all that can exit. The check at the bottom asks only
+# whether a VERDICT line exists, and each backend is launched with its output
+# suppressed, so ANY early exit that leaves the previous run's log in place lets
+# that run's `VERDICT: APPROVE` be read as this one's, passing a diff nobody
+# reviewed. Backends clear the logs they own too, but only the panel can
+# guarantee it, because only the panel sees whether a backend ran at all.
 # The fix-then-rerun loop reuses one out-prefix by design, which is exactly when
 # a stale approval is sitting there waiting to be inherited.
+#
+# This must stay the first executable statement after the arguments are read.
+# Three separate review rounds found this same hole one line further up each
+# time; putting it at the very top is what actually closes the class.
 for lens in correctness data ui; do
   log="${OUT}.${lens}.log"
   : > "$log" 2>/dev/null || rm -f "$log" 2>/dev/null || true
@@ -62,6 +61,11 @@ for lens in correctness data ui; do
     exit 2
   fi
 done
+
+DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
+PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
+
+[ -f "$DIFF" ] || { echo "panel-review: no such diff: $DIFF" >&2; exit 2; }
 
 # Validate the whole spec BEFORE running anything, so a typo fails in a second
 # rather than after one lens has already been paid for.
