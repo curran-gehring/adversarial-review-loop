@@ -124,7 +124,10 @@ if command -v arl_clear_logs >/dev/null 2>&1; then
   printf 'VERDICT: APPROVE\n' > "$rodir/x.data.log"
   chmod 444 "$rodir/x.data.log" 2>/dev/null
   chmod 555 "$rodir" 2>/dev/null
-  if : > "$rodir/x.data.log" 2>/dev/null || rm -f "$rodir/x.data.log" 2>/dev/null; then
+  # Subshell: a redirection failure is reported by the shell itself, so the
+  # 2>/dev/null has to wrap the whole thing or the probe prints a scary-looking
+  # "Permission denied" that reads like a test failure.
+  if ( : > "$rodir/x.data.log" ) 2>/dev/null || rm -f "$rodir/x.data.log" 2>/dev/null; then
     chmod 755 "$rodir" 2>/dev/null
     ok "(skipped: this filesystem does not enforce write permission)"
   else
