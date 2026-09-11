@@ -33,6 +33,12 @@ OUT="$(arl_abs "$OUT")"
 # all three, so every existing caller is unaffected.
 ARL_LENSES="${ARL_LENSES:-correctness data ui}"
 
+# Claim the prefix before touching any log under it. A no-op when a parent
+# runner already holds it — which is the case whenever the panel launched us, or
+# when fanout-review.sh exec'd us. Standalone, this is the only lock taken.
+arl_lock_prefix "$OUT" || exit 1
+trap 'arl_unlock_prefix' EXIT
+
 # Clear them before anything below can exit, and stop if a stale verdict
 # survives — see arl_clear_logs in lenses.sh.
 arl_clear_logs "$OUT" $ARL_LENSES || exit 1

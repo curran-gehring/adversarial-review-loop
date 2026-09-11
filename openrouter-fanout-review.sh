@@ -50,6 +50,11 @@ for _lens in $ARL_LENSES; do
   esac
 done
 
+# Claim the prefix before touching any log under it. A no-op when a parent
+# runner already holds it — the usual case, since the panel launches us.
+arl_lock_prefix "$OUT" || exit 2
+trap 'arl_unlock_prefix' EXIT
+
 # Clear the logs this invocation owns BEFORE any check below can exit, and stop
 # outright if a stale verdict survives — see arl_clear_logs in lenses.sh.
 arl_clear_logs "$OUT" $ARL_LENSES || exit 2
@@ -73,7 +78,9 @@ MAX_BYTES="${ARL_OPENROUTER_MAX_BYTES:-400000}"
 BASE_URL="${ARL_OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Replaces the unlock-only trap set above; it must still release the lock, or a
+# standalone run leaks its prefix lock and the next one refuses to start.
+trap 'rm -rf "$tmp"; arl_unlock_prefix' EXIT
 chmod 700 "$tmp"
 
 # Credentials go in a curl config file, not argv — argv is world-readable via ps.

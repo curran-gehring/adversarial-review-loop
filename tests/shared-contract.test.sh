@@ -193,6 +193,36 @@ for b in $backends; do
   else
     ok "$b clears stale verdicts before preflight"
   fi
+
+  # It must also refuse a prefix another run holds — fanout-review.sh execs the
+  # claude backend before it ever locks, so locking only the entry runner left
+  # that path unguarded.
+  held="$work/held_$(printf '%s' "$b" | tr -c 'a-zA-Z0-9' '_')"
+  mkdir -p "${held}.lock"
+  printf 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+y\n' > "$work/ok.diff"
+  (
+    cd "$work" || exit 1
+    env ARL_LENSES=data \
+        OPENROUTER_API_KEY=sk-test ARL_OPENROUTER_MODEL=vendor/model \
+        ARL_FORCE_CODEX_FANOUT=1 ARL_GEMINI_BIN=agy-does-not-exist \
+        "$script" "$work/ok.diff" "$held" "" "$work"
+  ) >/dev/null 2>&1 \
+    && bad "$b ran against a prefix another review holds" \
+    || ok "$b refuses a prefix another review holds"
+  rmdir "${held}.lock" 2>/dev/null
+
+  # ...and must release its own lock, or the next run is blocked forever.
+  rel="$work/rel_$(printf '%s' "$b" | tr -c 'a-zA-Z0-9' '_')"
+  (
+    cd "$work" || exit 1
+    env ARL_LENSES=data \
+        OPENROUTER_API_KEY=sk-test ARL_OPENROUTER_MODEL=vendor/model \
+        ARL_FORCE_CODEX_FANOUT=1 ARL_GEMINI_BIN=agy-does-not-exist \
+        "$script" "$work/definitely-missing.diff" "$rel" "" "$work"
+  ) >/dev/null 2>&1
+  [ -d "${rel}.lock" ] \
+    && bad "$b leaked its prefix lock on exit" \
+    || ok "$b releases its prefix lock on exit"
 done
 
 printf '\n'

@@ -56,6 +56,11 @@ for _lens in $ARL_LENSES; do
   esac
 done
 
+# Claim the prefix before touching any log under it. A no-op when a parent
+# runner already holds it — the usual case, since the panel launches us.
+arl_lock_prefix "$OUT" || exit 2
+trap 'arl_unlock_prefix' EXIT
+
 # Clear the logs this invocation owns BEFORE any preflight check can exit, and
 # stop outright if a stale verdict survives — see arl_clear_logs in lenses.sh.
 arl_clear_logs "$OUT" $ARL_LENSES || exit 2
@@ -72,7 +77,9 @@ PY="$(arl_pick_python)" || {
 cd "$REPO" || { echo "gemini-fanout: cannot cd to repo: $REPO" >&2; exit 2; }
 
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+# Replaces the unlock-only trap set above; it must still release the lock, or a
+# standalone run leaks its prefix lock and the next one refuses to start.
+trap 'rm -rf "$tmp"; arl_unlock_prefix' EXIT
 chmod 700 "$tmp"
 
 # --- context: the diff, plus current contents of the files it touches --------
