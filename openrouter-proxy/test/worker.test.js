@@ -5,7 +5,7 @@ const env = {
   OPENROUTER_API_KEY: "sk-or-the-real-metered-key",
   APP_TOKEN: "gate-token",
   ALLOWED_MODELS: "google/gemini-3.8-flash",
-  MAX_TOKENS: "4000",
+  MAX_TOKENS: "16000",
 };
 
 const body = {
@@ -90,7 +90,7 @@ describe("spend limits", () => {
     upstreamOk();
     await worker.fetch(post({ ...body, max_tokens: 999999 }), env);
     const sent = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
-    expect(sent.max_tokens).toBe(4000);
+    expect(sent.max_tokens).toBe(16000);
   });
 
   // A bad max_tokens must never reach OpenRouter. An upstream 400 makes the lens
@@ -105,7 +105,7 @@ describe("spend limits", () => {
     upstreamOk();
     await worker.fetch(post({ ...body, max_tokens: value }), env);
     const sent = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
-    expect(sent.max_tokens).toBe(4000);
+    expect(sent.max_tokens).toBe(16000);
   });
 
   // Fractional values are floored, not replaced -- 100.9 is a coherent ask, just
@@ -131,7 +131,7 @@ describe("spend limits", () => {
     const { max_tokens, ...noCap } = body;
     await worker.fetch(post(noCap), env);
     const sent = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
-    expect(sent.max_tokens).toBe(4000);
+    expect(sent.max_tokens).toBe(16000);
   });
 });
 

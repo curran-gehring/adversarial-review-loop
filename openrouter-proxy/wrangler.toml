@@ -11,8 +11,14 @@ enabled = true
 # oversight. The correctness lens runs on codex against a ChatGPT subscription
 # and never touches this worker.
 ALLOWED_MODELS = "google/gemini-3.8-flash"
-# Reviews return a short verdict plus reasoning; they do not need a long tail.
-MAX_TOKENS = "4000"
+# Reasoning models spend thinking tokens against this same budget, so this is not
+# "how long is a verdict" -- it is reasoning + verdict. At 4000 a large diff was
+# cut off mid-token before gemini-3.8-flash ever emitted its VERDICT line, and
+# panel-review.sh then appended a synthetic REJECT indistinguishable from a real
+# finding. Measured on one branch: 363- and 494-line diffs verdicted; 921- and
+# 945-line diffs truncated. Same prompt and diff at 16000 returned a clean
+# APPROVE. Raise this before trimming it.
+MAX_TOKENS = "16000"
 
 # 30 requests/min per IP. A panel run is 2 OpenRouter calls, so this is ~15
 # concurrent reviews — far above real use, low enough to bound a runaway loop.
