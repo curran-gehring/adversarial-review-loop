@@ -40,21 +40,10 @@ MODEL="${ARL_GEMINI_MODEL:-gemini-3.1-pro-high}"
 TIMEOUT="${ARL_GEMINI_TIMEOUT:-10m}"
 MAX_BYTES="${ARL_GEMINI_MAX_BYTES:-400000}"
 
-# Make both path arguments absolute BEFORE anything cds or exits.
-#   DIFF: a relative path passes the -f check here and then fails to open from
-#   inside REPO, handing the reviewer an EMPTY diff — and a model with nothing
-#   to criticize can answer APPROVE. A fail-OPEN in a gate whose only job is to
-#   catch bad changes must be impossible by construction, not by convention.
-#   OUT: the mirror image — logs written under REPO while panel-review.sh reads
-#   them from its own directory turn a lens that APPROVED into "no verdict".
-case "$DIFF" in
-  /*) ;;
-  *)  DIFF="$PWD/$DIFF" ;;
-esac
-case "$OUT" in
-  /*) ;;
-  *)  OUT="$PWD/$OUT" ;;
-esac
+# Absolute before anything cds or exits — see the rationale on arl_abs in
+# lenses.sh, which is the single copy all four backends now share.
+DIFF="$(arl_abs "$DIFF")"
+OUT="$(arl_abs "$OUT")"
 
 # Which lenses this invocation runs. The panel runner sets this to a single
 # lens so different lenses can run on different reviewer families; default is
@@ -82,18 +71,7 @@ command -v "$BIN" >/dev/null 2>&1 || {
   echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
 [ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
 
-# Pick an interpreter that actually runs, not merely one that resolves. On
-# Windows `python3` is usually the App Execution Alias stub, which sits on PATH,
-# satisfies `command -v`, and then fails at launch with 0x80070003 — turning a
-# broken environment into three REJECTs that look like review findings.
-PY=""
-for _py in ${ARL_PYTHON:-} python3 python py; do
-  [ -n "$_py" ] || continue
-  command -v "$_py" >/dev/null 2>&1 || continue
-  "$_py" -c 'pass' >/dev/null 2>&1 || continue
-  PY="$_py"; break
-done
-[ -n "$PY" ] || {
+PY="$(arl_pick_python)" || {
   echo "gemini-fanout: no working Python found (tried ${ARL_PYTHON:+$ARL_PYTHON }python3 python py); set ARL_PYTHON" >&2; exit 2; }
 
 cd "$REPO" || { echo "gemini-fanout: cannot cd to repo: $REPO" >&2; exit 2; }

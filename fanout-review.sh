@@ -54,6 +54,11 @@ OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
 REPO="${4:-$PWD}"   # default: current directory; pass the repo so codex can read source
 
+# Absolute before the cd — see the rationale on arl_abs in lenses.sh.
+DIFF="$(arl_abs "$DIFF")"
+OUT="$(arl_abs "$OUT")"
+[ -f "$DIFF" ] || { echo "fanout-review: no such diff: $DIFF" >&2; exit 1; }
+
 cd "$REPO" || { echo "fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
 # Which lenses this invocation runs. The panel runner sets this to a single

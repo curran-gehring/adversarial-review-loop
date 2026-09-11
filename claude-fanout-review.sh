@@ -22,6 +22,13 @@ OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
 REPO="${4:-$PWD}"
 
+# Absolute before the cd — see the rationale on arl_abs in lenses.sh. This
+# backend pipes `cat "$DIFF"` into the reviewer, so a relative path that fails
+# to open here sends an EMPTY diff to a model that can answer APPROVE.
+DIFF="$(arl_abs "$DIFF")"
+OUT="$(arl_abs "$OUT")"
+[ -f "$DIFF" ] || { echo "claude-fanout-review: no such diff: $DIFF" >&2; exit 1; }
+
 cd "$REPO" || { echo "claude-fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
 CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-claude-fable-5}"
