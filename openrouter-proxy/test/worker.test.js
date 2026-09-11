@@ -86,6 +86,20 @@ describe("spend limits", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  // The codex-free fallback gate (ARL_GATE=nocodex) moves the correctness lens
+  // off the ChatGPT subscription and onto an OpenRouter GPT model, so the
+  // allowlist must admit more than one entry. Pinned here because the fallback
+  // is only reachable when the subscription is already exhausted -- a regression
+  // would surface as a dead gate at exactly the wrong moment.
+  it("admits every model in a comma-separated allowlist", async () => {
+    upstreamOk();
+    const multi = { ...env, ALLOWED_MODELS: "google/gemini-3.8-flash, openai/gpt-5.6-luna" };
+    const res = await worker.fetch(post({ ...body, model: "openai/gpt-5.6-luna" }), multi);
+    expect(res.status).toBe(200);
+    const sent = JSON.parse(globalThis.fetch.mock.calls[0][1].body);
+    expect(sent.model).toBe("openai/gpt-5.6-luna");
+  });
+
   it("caps max_tokens rather than rejecting an over-large request", async () => {
     upstreamOk();
     await worker.fetch(post({ ...body, max_tokens: 999999 }), env);
