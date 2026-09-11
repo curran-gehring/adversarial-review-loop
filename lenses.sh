@@ -82,6 +82,38 @@ arl_pick_python() {
 #
 # Verifying rather than trusting the truncation is the point: `: >` can fail on
 # a read-only parent, and `|| true` would turn that into a silent fail-open.
+# arl_lock_prefix <out_prefix> — take an exclusive lock on an out-prefix.
+# arl_unlock_prefix                — release it (call from an EXIT trap).
+#
+# Two runs sharing one prefix interleave their lens logs, and the aggregate is
+# then read from a mixture of both — which can approve the wrong diff. The
+# canonical entry point (review-gate.sh) uses mktemp so its runs never collide,
+# and the documented protocol is one diff at a time, so this only bites when a
+# prefix is passed by hand twice. Cheap to make impossible, though, and the
+# failure it prevents is silent.
+#
+# mkdir is the lock because it is atomic on every filesystem we care about. Only
+# the top-level runner locks; it exports ARL_PREFIX_LOCK_HELD so the backends it
+# launches under the same prefix do not deadlock against their own parent.
+arl_lock_prefix() {
+  [ -z "${ARL_PREFIX_LOCK_HELD:-}" ] || return 0
+  ARL_PREFIX_LOCK_DIR="$1.lock"
+  if ! mkdir "$ARL_PREFIX_LOCK_DIR" 2>/dev/null; then
+    echo "arl: another review already holds the out-prefix $1" >&2
+    echo "arl: give this run a different out-prefix, or remove $ARL_PREFIX_LOCK_DIR if a previous run crashed." >&2
+    ARL_PREFIX_LOCK_DIR=""
+    return 1
+  fi
+  ARL_PREFIX_LOCK_HELD=1
+  export ARL_PREFIX_LOCK_HELD
+}
+
+arl_unlock_prefix() {
+  [ -n "${ARL_PREFIX_LOCK_DIR:-}" ] || return 0
+  rmdir "$ARL_PREFIX_LOCK_DIR" 2>/dev/null || true
+  ARL_PREFIX_LOCK_DIR=""
+}
+
 arl_clear_logs() {
   _arl_out="$1"; shift
   for _arl_lens in "$@"; do

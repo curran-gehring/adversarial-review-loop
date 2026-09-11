@@ -63,6 +63,11 @@ OUT="$(arl_abs "$OUT")"
 # all three, so every existing caller is unaffected.
 ARL_LENSES="${ARL_LENSES:-correctness data ui}"
 
+# Claim the prefix before touching any log under it. A no-op when the panel
+# launched us, since it already holds the lock — see arl_lock_prefix.
+arl_lock_prefix "$OUT" || exit 1
+trap 'arl_unlock_prefix' EXIT
+
 # Clear them before anything below can exit, and stop if a stale verdict
 # survives — see arl_clear_logs in lenses.sh.
 arl_clear_logs "$OUT" $ARL_LENSES || exit 1

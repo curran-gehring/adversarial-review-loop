@@ -48,6 +48,11 @@ REPO="${4:-$PWD}"
 DIFF="$(arl_abs "$DIFF")"
 OUT="$(arl_abs "$OUT")"
 
+# Claim the prefix before touching any log under it, so a second run cannot
+# clear logs this one is still writing — see arl_lock_prefix in lenses.sh.
+arl_lock_prefix "$OUT" || exit 2
+trap 'arl_unlock_prefix' EXIT
+
 # Clear every lens log FIRST — before the diff check, before spec validation,
 # before anything at all that can exit. The check at the bottom asks only
 # whether a VERDICT line exists, and each backend is launched with its output

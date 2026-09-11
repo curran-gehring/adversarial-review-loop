@@ -140,6 +140,33 @@ if command -v arl_clear_logs >/dev/null 2>&1; then
   fi
 fi
 
+# --- arl_lock_prefix -------------------------------------------------------
+# Two runs sharing a prefix interleave their lens logs, and the aggregate is
+# then read from a mixture of both — which can approve the wrong diff.
+if command -v arl_lock_prefix >/dev/null 2>&1; then
+  ok "lenses.sh exposes arl_lock_prefix"
+  lpfx="$work/lock"
+  if ( unset ARL_PREFIX_LOCK_HELD; arl_lock_prefix "$lpfx" ) >/dev/null 2>&1; then
+    ok "arl_lock_prefix takes a free prefix"
+  else
+    bad "arl_lock_prefix could not take a free prefix"
+  fi
+  # The subshell above exited without unlocking, so the lock dir persists —
+  # which is exactly the state a second concurrent run would encounter.
+  if ( unset ARL_PREFIX_LOCK_HELD; arl_lock_prefix "$lpfx" ) >/dev/null 2>&1; then
+    bad "arl_lock_prefix handed out a prefix that was already held"
+  else
+    ok "arl_lock_prefix refuses a prefix another run holds"
+  fi
+  # A backend launched by the panel must not deadlock against its own parent.
+  ( ARL_PREFIX_LOCK_HELD=1; arl_lock_prefix "$lpfx" ) >/dev/null 2>&1 \
+    && ok "arl_lock_prefix is a no-op when a parent runner holds the lock" \
+    || bad "arl_lock_prefix blocked a child whose parent holds the lock"
+  rmdir "${lpfx}.lock" 2>/dev/null
+else
+  bad "lenses.sh does not expose arl_lock_prefix"
+fi
+
 # --- every backend must behave the same on a preflight failure -------------
 # This is the parity assertion. Each fix in this area historically landed in one
 # backend and was assumed to cover the rest; it never did. Asserting the whole
