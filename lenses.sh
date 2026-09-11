@@ -70,3 +70,26 @@ arl_pick_python() {
   [ -n "$_arl_py" ] || return 1
   printf '%s\n' "$_arl_py"
 }
+
+# arl_clear_logs <out_prefix> <lens>... — clear the lens logs this invocation
+# owns, and return non-zero if a previous run's verdict survives.
+#
+# Must be called BEFORE any preflight check that can exit. Callers ask only
+# whether a VERDICT line exists and suppress the backend's stderr, so a stale
+# `VERDICT: APPROVE` left behind by an early exit is read as this run's verdict
+# — passing a diff nobody reviewed. The fix-then-rerun loop reuses one
+# out-prefix by design, which is exactly when that happens.
+#
+# Verifying rather than trusting the truncation is the point: `: >` can fail on
+# a read-only parent, and `|| true` would turn that into a silent fail-open.
+arl_clear_logs() {
+  _arl_out="$1"; shift
+  for _arl_lens in "$@"; do
+    _arl_log="${_arl_out}.${_arl_lens}.log"
+    : > "$_arl_log" 2>/dev/null || rm -f "$_arl_log" 2>/dev/null || true
+    if [ -e "$_arl_log" ] && grep -qE '^[[:space:]]*VERDICT[[:space:]]*:' "$_arl_log" 2>/dev/null; then
+      echo "arl: cannot clear a stale verdict in $_arl_log; refusing to run" >&2
+      return 1
+    fi
+  done
+}

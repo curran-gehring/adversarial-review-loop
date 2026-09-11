@@ -85,6 +85,54 @@ if command -v arl_pick_python >/dev/null 2>&1; then
     || ok "arl_pick_python fails when nothing runs"
 fi
 
+# --- arl_clear_logs --------------------------------------------------------
+# Callers ask only whether a VERDICT line exists and suppress the backend's
+# stderr, so a stale APPROVE that survives clearing is read as this run's
+# verdict. Swallowing the failure with `|| true` is what fails the gate open.
+command -v arl_clear_logs >/dev/null 2>&1 \
+  && ok "lenses.sh exposes arl_clear_logs" \
+  || bad "lenses.sh does not expose arl_clear_logs"
+
+if command -v arl_clear_logs >/dev/null 2>&1; then
+  pfx="$work/clear"
+  printf 'earlier run\nVERDICT: APPROVE\n' > "${pfx}.data.log"
+  printf 'earlier run\nVERDICT: APPROVE\n' > "${pfx}.ui.log"
+  if arl_clear_logs "$pfx" data ui 2>/dev/null; then
+    if grep -q VERDICT "${pfx}.data.log" "${pfx}.ui.log" 2>/dev/null; then
+      bad "arl_clear_logs returned success with a verdict still present"
+    else
+      ok "arl_clear_logs clears the verdicts it owns"
+    fi
+  else
+    bad "arl_clear_logs failed on ordinary writable logs"
+  fi
+
+  # It must not touch a lens it was not asked to clear.
+  printf 'VERDICT: APPROVE\n' > "${pfx}.correctness.log"
+  arl_clear_logs "$pfx" data >/dev/null 2>&1
+  grep -q VERDICT "${pfx}.correctness.log" 2>/dev/null \
+    && ok "arl_clear_logs leaves lenses it does not own alone" \
+    || bad "arl_clear_logs cleared a lens it was not given"
+
+  # And it must REFUSE when a stale verdict cannot be removed. Only meaningful
+  # where the filesystem actually enforces directory write permission, so the
+  # precondition is verified rather than assumed.
+  rodir="$work/ro"; mkdir -p "$rodir"
+  printf 'VERDICT: APPROVE\n' > "$rodir/x.data.log"
+  chmod 555 "$rodir" 2>/dev/null
+  if : > "$rodir/x.data.log" 2>/dev/null || rm -f "$rodir/x.data.log" 2>/dev/null; then
+    chmod 755 "$rodir" 2>/dev/null
+    ok "(skipped: this filesystem does not enforce directory write permission)"
+  else
+    if arl_clear_logs "$rodir/x" data 2>/dev/null; then
+      bad "arl_clear_logs returned success while a stale APPROVE survived"
+    else
+      ok "arl_clear_logs refuses when a stale verdict cannot be cleared"
+    fi
+    chmod 755 "$rodir" 2>/dev/null
+  fi
+fi
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'shared-contract: ALL PASS\n'; exit 0

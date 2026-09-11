@@ -56,14 +56,9 @@ for _lens in $ARL_LENSES; do
   esac
 done
 
-# Clear the logs this invocation owns BEFORE any preflight check can exit.
-# panel-review.sh only asks whether a VERDICT line exists, and swallows our
-# stderr — so a preflight failure that left the PREVIOUS run's APPROVE in place
-# would silently pass the current diff. The fix-then-rerun loop reuses a single
-# out-prefix by design, which is exactly when that would bite.
-for _lens in $ARL_LENSES; do
-  : > "${OUT}.${_lens}.log"
-done
+# Clear the logs this invocation owns BEFORE any preflight check can exit, and
+# stop outright if a stale verdict survives — see arl_clear_logs in lenses.sh.
+arl_clear_logs "$OUT" $ARL_LENSES || exit 2
 
 # Fail fast at the boundary: a missing CLI or diff must not surface as three
 # REJECTs that read like the reviewer found real bugs.
