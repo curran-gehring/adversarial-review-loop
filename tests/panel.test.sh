@@ -93,5 +93,20 @@ else
   ok "unknown backend rejected up front"
 fi
 
+# a stale APPROVE from a previous run must never be inherited by this one.
+# The panel checks only for the presence of a VERDICT line and suppresses each
+# backend's output, so a backend dying in preflight would otherwise hand the
+# prior run's approval to the current diff. The fix-then-rerun loop reuses one
+# out-prefix, which is exactly when this happens.
+out3="$work/stale"
+printf 'from an earlier, passing run\nVERDICT: APPROVE\n' > "${out3}.data.log"
+ARL_PANEL="correctness=codex:gpt-5.6-luna,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash" \
+  bash "$panel" "$work/d.diff" "$out3" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'from an earlier, passing run' "${out3}.data.log" 2>/dev/null; then
+  bad "panel inherited a stale log from a previous run"
+else
+  ok "panel clears stale lens logs before dispatching"
+fi
+
 printf '\n'
 [ "$fails" -eq 0 ] && { echo "panel: ALL PASS"; exit 0; } || { echo "panel: $fails FAILURE(S)"; exit 1; }

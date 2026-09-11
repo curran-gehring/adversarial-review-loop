@@ -77,6 +77,23 @@ for entry in $PANEL; do
 done
 unset IFS
 
+# Clear every lens log BEFORE dispatching. The check at the bottom asks only
+# whether a VERDICT line exists, and each backend is launched with its output
+# suppressed, so a backend that dies in preflight leaves the PREVIOUS run's log
+# in place and that run's `VERDICT: APPROVE` is read as this one's — passing a
+# diff nobody reviewed. Backends clear the logs they own too, but only the panel
+# can guarantee it, because only the panel sees a backend's exit code.
+# The fix-then-rerun loop reuses one out-prefix by design, which is exactly when
+# a stale approval is sitting there waiting to be inherited.
+for lens in correctness data ui; do
+  log="${OUT}.${lens}.log"
+  : > "$log" 2>/dev/null || rm -f "$log" 2>/dev/null || true
+  if [ -e "$log" ] && grep -qE '^[[:space:]]*VERDICT[[:space:]]*:' "$log" 2>/dev/null; then
+    echo "panel-review: cannot clear a stale verdict in $log; refusing to run" >&2
+    exit 2
+  fi
+done
+
 # Launch each assigned lens on its own backend, all in parallel.
 IFS=','
 for entry in $PANEL; do
