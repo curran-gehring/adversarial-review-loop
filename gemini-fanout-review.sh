@@ -44,6 +44,16 @@ MAX_BYTES="${ARL_GEMINI_MAX_BYTES:-400000}"
 # REJECTs that read like the reviewer found real bugs.
 command -v "$BIN" >/dev/null 2>&1 || {
   echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
+
+# Resolve the diff to an absolute path BEFORE the cd below. A relative path
+# passes the -f check here and then fails to open from inside REPO, which would
+# hand the reviewer an EMPTY diff — and a model with nothing to criticize can
+# answer APPROVE. That is a fail-OPEN in a gate whose only job is to catch bad
+# changes, so it must be impossible by construction rather than by convention.
+case "$DIFF" in
+  /*) ;;
+  *)  DIFF="$PWD/$DIFF" ;;
+esac
 [ -f "$DIFF" ] || { echo "gemini-fanout: no such diff: $DIFF" >&2; exit 2; }
 
 # Pick an interpreter that actually runs, not merely one that resolves. On
@@ -95,6 +105,12 @@ ctx="$tmp/context.txt"
       [ "$budget" -le 0 ] && break
     done
 } > "$ctx"
+
+# Belt and braces on the same failure class: whatever went wrong upstream, never
+# let a context that does not actually contain the diff reach a reviewer.
+grep -q '^\(diff --git\|--- \|+++ \|@@ \)' "$ctx" 2>/dev/null || {
+  echo "gemini-fanout: built an empty or diff-less context from $DIFF; refusing to review nothing" >&2
+  exit 3; }
 
 # --- one lens ---------------------------------------------------------------
 run() {

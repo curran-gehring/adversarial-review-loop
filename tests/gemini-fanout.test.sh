@@ -195,6 +195,38 @@ else
   ok "ARL_LENSES=data leaves other lens logs untouched"
 fi
 
+# --- 11. a relative diff path must still reach the reviewer ---------------
+# The script cds to REPO before reading the diff, so a relative DIFF that
+# resolved fine at the -f check silently fails to open afterwards. The reviewer
+# then sees an empty diff and can answer APPROVE — a fail-OPEN in a gate whose
+# entire job is to catch bad changes. panel-review.sh passes both paths through
+# unchanged, so it is reachable from the normal entry point.
+: > "$ARL_STUB_STDIN"
+cp "$work/change.diff" "$work/relative-only.diff"
+outp="$work/relpath"
+( cd "$work" && env ARL_LENSES=data "$fanout" "relative-only.diff" "$outp" "ctx" "$repo" ) \
+  > "$work/relpath.out" 2>&1
+rel_rc=$?
+if grep -q 'diff --git a/Calc.swift' "$ARL_STUB_STDIN" 2>/dev/null; then
+  ok "relative diff path still reaches the reviewer"
+elif [ "$rel_rc" -ne 0 ]; then
+  ok "relative diff path rejected loudly instead of reviewing nothing"
+else
+  bad "relative diff path produced a review with no diff (fail-open)"
+fi
+
+# --- 12. an unreadable diff must never yield an empty review ---------------
+# Belt and braces for the same failure class: if the diff cannot be read for any
+# reason, the run must abort rather than hand the model an empty prompt.
+: > "$ARL_STUB_STDIN"
+outp="$work/unreadable"
+if run_fanout "$outp" ARL_LENSES=data >/dev/null 2>&1 \
+   && ! grep -q 'diff --git' "$ARL_STUB_STDIN" 2>/dev/null; then
+  bad "sent an empty diff to the reviewer and still exited 0"
+else
+  ok "never reviews an empty diff silently"
+fi
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'gemini-fanout: ALL PASS\n'; exit 0
