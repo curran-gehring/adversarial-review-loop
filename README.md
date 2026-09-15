@@ -176,7 +176,7 @@ a unique output prefix, context, and repository directory. Its default panel is:
 
 Set `ARL_PRIMARY_MODEL=claude` or `codex` explicitly. Otherwise the gate detects
 Codex environment markers and falls back to Claude authorship. Escalate
-Claude-authored correctness with `ARL_CODEX_MODEL=gpt-6-astra`; escalate
+Claude-authored correctness with `ARL_CODEX_MODEL=gpt-5.6-sol`; escalate
 Codex-authored correctness with `ARL_CLAUDE_MODEL=claude-opus-5`. Both overrides
 apply to the mixed panel and preserve its Gemini lenses. An explicit `ARL_PANEL`
 takes precedence over automatic routing. `ARL_GATE=single` is an explicit

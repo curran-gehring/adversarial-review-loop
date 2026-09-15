@@ -71,9 +71,9 @@ case "$(cat "$ARL_TEST_CALLS")" in
   *correctness=claude:claude-opus-5,data=openrouter:google/gemini-3.8-flash*) ok "Codex escalation uses Opus and preserves Gemini" ;;
   *) bad "Codex escalation ignored" ;;
 esac
-run_gate CODEX_THREAD_ID=test ARL_PRIMARY_MODEL=claude ARL_CODEX_MODEL=gpt-6-astra >/dev/null 2>&1
+run_gate CODEX_THREAD_ID=test ARL_PRIMARY_MODEL=claude ARL_CODEX_MODEL=gpt-5.6-sol >/dev/null 2>&1
 case "$(cat "$ARL_TEST_CALLS")" in
-  *correctness=codex:gpt-6-astra,data=openrouter:google/gemini-3.8-flash*) ok "explicit Claude author overrides detection and escalation uses Astra" ;;
+  *correctness=codex:gpt-5.6-sol,data=openrouter:google/gemini-3.8-flash*) ok "explicit Claude author overrides detection and escalation uses Sol" ;;
   *) bad "Claude escalation ignored" ;;
 esac
 
