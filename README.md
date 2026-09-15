@@ -162,3 +162,23 @@ guarantee it makes: nothing lands on `main` without an independent APPROVE.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+
+## Host mixed-panel policy (2026-09-15)
+
+Invoke `gate.sh` (or the host `~/fanout-review.sh` shim), passing the diff,
+a unique output prefix, context, and repository directory. Its default panel is:
+
+| Author | Correctness (subscription) | Data and UI (OpenRouter) |
+| --- | --- | --- |
+| Claude | `codex:gpt-5.6-luna` | `openrouter:google/gemini-3.8-flash` |
+| Codex/GPT | `claude:claude-sonnet-5` | `openrouter:google/gemini-3.8-flash` |
+
+Set `ARL_PRIMARY_MODEL=claude` or `codex` explicitly. Otherwise the gate detects
+Codex environment markers and falls back to Claude authorship. Escalate
+Claude-authored correctness with `ARL_CODEX_MODEL=gpt-6-astra`; escalate
+Codex-authored correctness with `ARL_CLAUDE_MODEL=claude-opus-5`. Both overrides
+apply to the mixed panel and preserve its Gemini lenses. An explicit `ARL_PANEL`
+takes precedence over automatic routing. `ARL_GATE=single` is an explicit
+all-one-model fallback, not the routine review. Every lens must approve;
+missing or malformed verdicts fail, and build/test checks remain independent.
