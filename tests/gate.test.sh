@@ -37,9 +37,9 @@ export ARL_TEST_CALLS="$work/calls.txt"
 : > "$ARL_TEST_CALLS"
 printf 'diff --git a/x b/x\n' > "$work/d.diff"
 
-run_gate() { : > "$ARL_TEST_CALLS"; env "$@" "$sandbox/gate.sh" "$work/d.diff" "$work/out" "ctx"; }
+run_gate() { : > "$ARL_TEST_CALLS"; env -u ARL_PANEL -u ARL_GATE -u ARL_CLAUDE_MODEL -u ARL_CODEX_MODEL -u ARL_OPENROUTER_MODEL -u CODEX_SHELL -u CODEX_THREAD_ID -u CODEX_CI ARL_PRIMARY_MODEL=claude "$@" "$sandbox/gate.sh" "$work/d.diff" "$work/out" "ctx"; }
 
-# --- default: mixed panel, Gemini lenses on the subscription ---------------
+# --- default: mixed panel, Gemini lenses on OpenRouter ---------------
 run_gate ARL_DEFAULT_REPO="$work" >/dev/null 2>&1
 calls="$(cat "$ARL_TEST_CALLS")"
 case "$calls" in
@@ -51,8 +51,30 @@ case "$calls" in
   *) bad "default lost the codex correctness lens" ;;
 esac
 case "$calls" in
-  *data=gemini:*ui=gemini:*) ok "default runs both Gemini lenses on the subscription" ;;
-  *) bad "default did not put the Gemini lenses on the gemini backend" ;;
+  *data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash*) ok "default runs both Gemini 3.8 lenses on OpenRouter" ;;
+  *) bad "default did not put the Gemini lenses on OpenRouter" ;;
+esac
+
+# Author routing and escalation must affect the actual mixed panel.
+for spec in \
+  'ARL_PRIMARY_MODEL=codex|correctness=claude:claude-sonnet-5' \
+  'CODEX_THREAD_ID=test|correctness=claude:claude-sonnet-5'; do
+  setting="${spec%%|*}"; expected="${spec#*|}"
+  run_gate ARL_PRIMARY_MODEL= "$setting" >/dev/null 2>&1
+  case "$(cat "$ARL_TEST_CALLS")" in
+    *"$expected"*) ok "routes $setting to Sonnet" ;;
+    *) bad "wrong author routing for $setting" ;;
+  esac
+done
+run_gate ARL_PRIMARY_MODEL=codex ARL_CLAUDE_MODEL=claude-opus-5 >/dev/null 2>&1
+case "$(cat "$ARL_TEST_CALLS")" in
+  *correctness=claude:claude-opus-5,data=openrouter:google/gemini-3.8-flash*) ok "Codex escalation uses Opus and preserves Gemini" ;;
+  *) bad "Codex escalation ignored" ;;
+esac
+run_gate CODEX_THREAD_ID=test ARL_PRIMARY_MODEL=claude ARL_CODEX_MODEL=gpt-6-astra >/dev/null 2>&1
+case "$(cat "$ARL_TEST_CALLS")" in
+  *correctness=codex:gpt-6-astra,data=openrouter:google/gemini-3.8-flash*) ok "explicit Claude author overrides detection and escalation uses Astra" ;;
+  *) bad "Claude escalation ignored" ;;
 esac
 
 # --- nocodex: the fallback, no ChatGPT subscription required ---------------

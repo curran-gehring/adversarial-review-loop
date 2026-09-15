@@ -17,10 +17,8 @@
 #                     unreachable Non-food screen
 # Each caught a real shipped bug the other missed. The panel runs both families.
 #
-# The correctness lens stays on codex (ChatGPT subscription, and it can READ THE
-# REPO, which the HTTP backends cannot). Since 2026-09-11 the two Gemini lenses
-# run on the Google AI Pro subscription via Antigravity CLI rather than metered
-# OpenRouter, so a default panel run now costs nothing.
+# Correctness uses the opposite author family on its subscription. Data and UI
+# use Gemini 3.8 Flash through OpenRouter (user policy, 2026-09-15).
 set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -30,12 +28,31 @@ OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
 REPO="${4:-${ARL_DEFAULT_REPO:-$PWD}}"
 
-export ARL_PANEL="${ARL_PANEL:-correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high}"
-
 export ARL_CODEX_MODEL="${ARL_CODEX_MODEL:-gpt-5.6-luna}"
 export ARL_CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-claude-sonnet-5}"
 export ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"
 export ARL_GEMINI_MODEL="${ARL_GEMINI_MODEL:-gemini-3.1-pro-high}"
+
+# Match the single-model runner's author detection, with explicit author first.
+case "${ARL_PRIMARY_MODEL:-}" in
+  codex|Codex|CODEX) primary=codex ;;
+  claude|Claude|CLAUDE) primary=claude ;;
+  *)
+    if [ -n "${CODEX_SHELL:-}" ] || [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_CI:-}" ]; then
+      primary=codex
+    else
+      primary=claude
+    fi ;;
+esac
+if [ "$primary" = codex ]; then
+  correctness="claude:$ARL_CLAUDE_MODEL"
+else
+  correctness="codex:$ARL_CODEX_MODEL"
+fi
+# Model overrides now affect the panel too, so escalation cannot silently stay
+# on the routine model. An explicit panel remains the highest-priority choice.
+export ARL_PANEL="${ARL_PANEL:-correctness=$correctness,data=openrouter:$ARL_OPENROUTER_MODEL,ui=openrouter:$ARL_OPENROUTER_MODEL}"
+
 
 # Escape hatches, all preserving the same log/VERDICT contract:
 #   ARL_GATE=single  -> all three lenses on ONE model, chosen to be a different
