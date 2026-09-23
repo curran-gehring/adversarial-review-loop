@@ -13,7 +13,7 @@ enabled = true
 # codex-free fallback (ARL_GATE=nocodex) can keep the correctness lens on the
 # same model when that subscription is out of usage. At $0.20/$1.20 per Mtok it
 # is cheaper than the two Gemini lenses it runs beside.
-ALLOWED_MODELS = "google/gemini-3.8-flash,openai/gpt-5.6-luna"
+ALLOWED_MODELS = "google/gemini-3.8-flash,openai/gpt-5.6-luna,anthropic/claude-sonnet-5"
 # Raised 4000 -> 16000 on 2026-09-10. At 4000 the data lens was truncated mid-
 # reasoning on diffs over about 900 lines and never reached its VERDICT line, so
 # the harness recorded a synthetic REJECT and the gate silently degraded to two
