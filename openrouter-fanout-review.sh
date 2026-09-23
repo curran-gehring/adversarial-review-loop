@@ -149,9 +149,13 @@ prompt = "\n\n".join(x for x in [
     os.environ["ARL_RULES"],
     open(os.environ["ARL_CTX"], encoding="utf-8", errors="replace").read(),
 ] if x)
-json.dump({"model": os.environ["ARL_MODEL"],
-           "messages": [{"role": "user", "content": prompt}]},
-          open(os.environ["ARL_PAYLOAD"], "w", encoding="utf-8"))
+model = os.environ["ARL_MODEL"]
+payload = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+# Claude Sonnet 5 can use the entire proxy output allowance for hidden
+# reasoning and return empty content. Low effort leaves room for the verdict.
+if model == "anthropic/claude-sonnet-5":
+    payload["reasoning"] = {"effort": "low"}
+json.dump(payload, open(os.environ["ARL_PAYLOAD"], "w", encoding="utf-8"))
 ' 2>>"$log" || { printf 'VERDICT: REJECT -- openrouter %s lens could not build its request\n' "$name" >> "$log"; return; }
 
   http="$(curl -sS -K "$cfg" -X POST \
