@@ -31,7 +31,7 @@ EXTRA="${3:-}"
 REPO="${4:-${ARL_DEFAULT_REPO:-$PWD}}"
 
 export ARL_CODEX_MODEL="${ARL_CODEX_MODEL:-gpt-5.6-luna}"
-export ARL_CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-claude-sonnet-5}"
+export ARL_CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-sonnet}"  # alias = latest Sonnet
 export ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"
 export ARL_GEMINI_MODEL="${ARL_GEMINI_MODEL:-gemini-3.8-flash-high}"
 

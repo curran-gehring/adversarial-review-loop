@@ -57,8 +57,8 @@ esac
 
 # Author routing and escalation must affect the actual mixed panel.
 for spec in \
-  'ARL_PRIMARY_MODEL=codex|correctness=claude:claude-sonnet-5' \
-  'CODEX_THREAD_ID=test|correctness=claude:claude-sonnet-5'; do
+  'ARL_PRIMARY_MODEL=codex|correctness=claude:sonnet' \
+  'CODEX_THREAD_ID=test|correctness=claude:sonnet'; do
   setting="${spec%%|*}"; expected="${spec#*|}"
   run_gate ARL_PRIMARY_MODEL= "$setting" >/dev/null 2>&1
   case "$(cat "$ARL_TEST_CALLS")" in

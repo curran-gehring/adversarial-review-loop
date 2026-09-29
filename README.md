@@ -172,7 +172,7 @@ a unique output prefix, context, and repository directory. Its default panel is:
 | Author | Correctness (subscription) | Data and UI (OpenRouter) |
 | --- | --- | --- |
 | Claude | `codex:gpt-5.6-luna` | `openrouter:google/gemini-3.8-flash` |
-| Codex/GPT | `claude:claude-sonnet-5` | `openrouter:google/gemini-3.8-flash` |
+| Codex/GPT | `claude:sonnet` (latest Sonnet; 5.5 as of 2026-09-29) | `openrouter:google/gemini-3.8-flash` |
 
 Set `ARL_PRIMARY_MODEL=claude` or `codex` explicitly. Otherwise the gate detects
 Codex environment markers and falls back to Claude authorship. Escalate

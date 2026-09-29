@@ -45,7 +45,7 @@ case "$BACKEND" in
     DEFAULT_MODELS="gpt-5.6-luna" ;;
   claude)
     SCRIPT="$here/claude-fanout-review.sh"; MODELVAR=ARL_CLAUDE_MODEL
-    DEFAULT_MODELS="claude-sonnet-5" ;;
+    DEFAULT_MODELS="sonnet" ;;
   *) echo "bakeoff: unknown ARL_BAKEOFF_BACKEND: $BACKEND (openrouter|codex|claude)" >&2; exit 2 ;;
 esac
 
