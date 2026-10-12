@@ -130,5 +130,46 @@ else
   ok "a missing diff still clears stale lens logs"
 fi
 
+# --- a Gemini (agy) lens that fails to run falls back to OpenRouter -----------
+# The Gemini lenses run on the subscription first; OpenRouter is only the
+# fallback. An infrastructure failure reruns that lens there. A real REJECT
+# from Gemini is a review, and stands.
+cat > "$stubdir/agy" <<'STUB'
+#!/usr/bin/env bash
+cat >/dev/null
+printf 'agy %s\n' "$ARL_STUB_AGY" >> "$ARL_STUB_CALLS"
+case "$ARL_STUB_AGY" in
+  fail)   echo 'boom' >&2; exit 1 ;;
+  reject) printf '{"event":"result","result":{"status":"SUCCESS","response":"real bug\\nVERDICT: REJECT -- bug in A.swift"}}\n' ;;
+  *)      printf '{"event":"result","result":{"status":"SUCCESS","response":"gemini reviewed\\nVERDICT: APPROVE"}}\n' ;;
+esac
+STUB
+chmod +x "$stubdir/agy"
+gemini_panel="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.8-flash-high,ui=gemini:gemini-3.8-flash-high"
+
+: > "$ARL_STUB_CALLS"; out6="$work/fallback"
+ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out6" "ctx" "$repo" >/dev/null 2>&1
+for lens in data ui; do
+  if grep -q 'openrouter reviewed' "${out6}.${lens}.log" 2>/dev/null && grep -qE '^VERDICT: APPROVE' "${out6}.${lens}.log"; then
+    ok "failed agy $lens lens is rerun on OpenRouter"
+  else
+    bad "failed agy $lens lens was not rerun on OpenRouter"
+  fi
+  grep -q 'failed to run' "${out6}.${lens}.gemini.log" 2>/dev/null \
+    && ok "agy failure for $lens is kept in .gemini.log" || bad "agy failure for $lens was discarded"
+done
+grep -q 'gemini-3.8-flash' "$ARL_STUB_CALLS" && ok "fallback uses the OpenRouter Gemini model" || bad "fallback did not call OpenRouter Gemini"
+
+: > "$ARL_STUB_CALLS"; out7="$work/realreject"
+ARL_STUB_AGY=reject ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out7" "ctx" "$repo" >/dev/null 2>&1
+grep -qE '^VERDICT: REJECT -- bug in A.swift' "${out7}.data.log" 2>/dev/null \
+  && ok "a real Gemini REJECT stands" || bad "a real Gemini REJECT was replaced"
+grep -q '^curl ' "$ARL_STUB_CALLS" && bad "a real Gemini REJECT triggered an OpenRouter rerun" || ok "a real Gemini REJECT is not rerun"
+
+: > "$ARL_STUB_CALLS"; out8="$work/nokey"
+env -u OPENROUTER_API_KEY ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out8" "ctx" "$repo" >/dev/null 2>&1
+grep -qE '^VERDICT: REJECT -- gemini data lens failed to run' "${out8}.data.log" 2>/dev/null \
+  && ok "without an OpenRouter key the agy failure fails closed" || bad "no-key agy failure did not fail closed"
+
 printf '\n'
 [ "$fails" -eq 0 ] && { echo "panel: ALL PASS"; exit 0; } || { echo "panel: $fails FAILURE(S)"; exit 1; }

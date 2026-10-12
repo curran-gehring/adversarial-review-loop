@@ -25,10 +25,9 @@
 # subscription), gemini (Antigravity CLI on the Google AI Pro/Ultra
 # subscription), openrouter (metered; needs OPENROUTER_API_KEY).
 #
-# The default panel is now entirely flat-rate: the Gemini lenses moved from
-# openrouter to the `gemini` backend on 2026-09-11, which buys the same
-# cross-family independence for $0/run instead of ~$0.07. openrouter is kept
-# for models no subscription covers.
+# The Gemini lenses run on the `gemini` backend (agy, Curran's Gemini
+# subscription) and fall back to openrouter only when agy fails to produce a
+# review -- see the fallback after the dispatch below (Curran, 2026-10-12).
 #
 # A lens absent from ARL_PANEL FAILS CLOSED. An unreviewed lens is a failed
 # review, not a pass — the same rule the individual backends follow.
@@ -67,6 +66,7 @@ trap 'arl_unlock_prefix' EXIT
 # Three separate review rounds found this same hole one line further up each
 # time; putting it at the very top is what actually closes the class.
 arl_clear_logs "$OUT" correctness data ui || exit 2
+rm -f "$OUT".correctness.gemini.log "$OUT".data.gemini.log "$OUT".ui.gemini.log
 
 DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
@@ -123,6 +123,27 @@ for entry in $PANEL; do
 done
 unset IFS
 wait
+
+# Gemini lenses run on the subscription (agy) first; OpenRouter is the fallback.
+# When agy fails to produce a review -- it errored, timed out, or gave no verdict --
+# that lens reruns on OpenRouter, and the agy log is kept beside it as
+# <lens>.gemini.log. A REJECT that Gemini actually wrote is a review and stands.
+# Without OPENROUTER_API_KEY the agy failure stays in place and fails closed.
+if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+  IFS=','
+  for entry in $PANEL; do
+    unset IFS
+    lens="${entry%%=*}"; rest="${entry#*=}"; backend="${rest%%:*}"
+    log="${OUT}.${lens}.log"
+    if [ "$backend" = gemini ] && grep -qE '^VERDICT: REJECT -- gemini [a-z]+ lens (failed to run|did not return a successful result|emitted no verdict|could not build its request)' "$log" 2>/dev/null; then
+      mv "$log" "${OUT}.${lens}.gemini.log"
+      env ARL_LENSES="$lens" ARL_NOOP=1 ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"         "$here/openrouter-fanout-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
+    fi
+    IFS=','
+  done
+  unset IFS
+  wait
+fi
 
 # Any lens the panel did not cover must fail closed.
 for lens in correctness data ui; do
