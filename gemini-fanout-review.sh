@@ -45,6 +45,9 @@ MAX_BYTES="${ARL_GEMINI_MAX_BYTES:-400000}"
 # lenses.sh, which is the single copy all four backends now share.
 DIFF="$(arl_abs "$DIFF")"
 OUT="$(arl_abs "$OUT")"
+# A BIN given as a path (./bin/agy) is relative to the caller too, and agy runs
+# from its own empty directory; a bare name still resolves through PATH.
+case "$BIN" in */*|*\\*) BIN="$(arl_abs "$BIN")" ;; esac
 
 # Which lenses this invocation runs. The panel runner sets this to a single
 # lens so different lenses can run on different reviewer families; default is

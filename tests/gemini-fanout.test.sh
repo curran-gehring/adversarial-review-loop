@@ -145,6 +145,15 @@ grep -q 'You have no tools' "$ARL_STUB_STDIN" \
   && ok "prompt tells the reviewer it has no tools" \
   || bad "prompt does not tell the reviewer it has no tools"
 
+# A relative ARL_GEMINI_BIN names a file relative to the caller's directory, so
+# moving agy into its empty workspace must not break it.
+mkdir -p "$work/bin" && cp "$stubdir/agy" "$work/bin/agy"
+outp="$work/relbin"
+run_fanout "$outp" ARL_LENSES=data ARL_GEMINI_BIN=./bin/agy > "$work/relbin.out" 2>&1
+grep -qE '^VERDICT: APPROVE' "${outp}.data.log" 2>/dev/null \
+  && ok "a relative ARL_GEMINI_BIN still runs from the empty workspace" \
+  || bad "a relative ARL_GEMINI_BIN broke: $(tail -c 300 "${outp}.data.log" 2>/dev/null)"
+
 # --- 4. stdin is well-formed NDJSON the CLI can parse ----------------------
 if "${ARL_STUB_PY:-python3}" -c '
 import json, sys
