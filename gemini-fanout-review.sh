@@ -14,8 +14,9 @@
 # working `gemini`-CLI equivalent to fall back to.
 #
 # Like the openrouter backend and unlike the codex one, the reviewer does not
-# read the repo: agy runs here with no tool permissions granted, so the current
-# contents of every file the diff touches are inlined below the diff.
+# read the repo: agy runs in an empty directory with no tool permissions
+# granted, and the prompt says it has no tools, so the current contents of
+# every file the diff touches are inlined below the diff.
 #
 # env:
 #   ARL_GEMINI_MODEL     agy model id (default gemini-3.1-pro-high).
@@ -138,6 +139,9 @@ run() {
 import json, os
 prompt = "\n\n".join(x for x in [
     "You are the %s lens of a parallel adversarial code review." % os.environ["ARL_LENS_NAME"],
+    "You have no tools in this review: you cannot run commands or tests, open files, or search, "
+    "and there is no workspace. Everything you need, the diff and the current contents of every "
+    "file it touches, is inlined below. Review that text and answer in text alone.",
     os.environ["ARL_LENS_TEXT"],
     ("Extra context: " + os.environ["ARL_EXTRA"]) if os.environ.get("ARL_EXTRA") else "",
     os.environ["ARL_RULES"],
@@ -149,9 +153,16 @@ with open(os.environ["ARL_MSG"], "w", encoding="utf-8") as fh:
 ' 2>>"$log" || {
     printf 'VERDICT: REJECT -- gemini %s lens could not build its request\n' "$name" >> "$log"; return; }
 
-  "$BIN" --model "$MODEL" --print-timeout "$TIMEOUT" \
+  # agy starts in an empty directory of its own, never the repo. Started in the
+  # repo, the agent tries to run the tests, print mode denies the command, and
+  # the turn ends with no review (agy 1.3.3, 2026-10-12). It needs no
+  # workspace: the files the diff touches are already in the prompt.
+  local ws="$tmp/workspace-${name}"
+  mkdir "$ws" || {
+    printf 'VERDICT: REJECT -- gemini %s lens could not create its empty workspace\n' "$name" >> "$log"; return; }
+  ( cd "$ws" && "$BIN" --model "$MODEL" --print-timeout "$TIMEOUT" \
          --input-format stream-json --output-format stream-json \
-         < "$msg" > "$body" 2>>"$log" || rc=$?
+         < "$msg" > "$body" 2>>"$log" ) || rc=$?
 
   if [ "$rc" -ne 0 ]; then
     head -c 2000 "$body" >> "$log" 2>/dev/null

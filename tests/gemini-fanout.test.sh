@@ -29,6 +29,7 @@ cat > "$stubdir/agy" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$ARL_STUB_ARGV"
 cat >> "$ARL_STUB_STDIN"
+printf '%s|%s\n' "$PWD" "$(ls -A | wc -l | tr -d ' ')" >> "$ARL_STUB_CWD"
 status="${ARL_STUB_STATUS:-SUCCESS}"
 response="${ARL_STUB_RESPONSE:-reviewed the diff and the inlined files\nVERDICT: APPROVE}"
 ARL_R="$response" ARL_S="$status" "${ARL_STUB_PY:-python3}" -c '
@@ -59,8 +60,10 @@ export ARL_STUB_PY
 
 export ARL_STUB_ARGV="$work/argv.txt"
 export ARL_STUB_STDIN="$work/stdin.txt"
+export ARL_STUB_CWD="$work/cwd.txt"
 : > "$ARL_STUB_ARGV"
 : > "$ARL_STUB_STDIN"
+: > "$ARL_STUB_CWD"
 
 # --- fixture repo ----------------------------------------------------------
 repo="$work/repo"
@@ -120,6 +123,27 @@ grep -q 'UNIQUE_FILE_MARKER' "$ARL_STUB_ARGV" \
 grep -q 'input-format stream-json' "$ARL_STUB_ARGV" \
   && ok "invokes agy in stream-json input mode" \
   || bad "does not use stream-json input mode"
+
+# --- 3b. agy gets no workspace and is told it has no tools ------------------
+# Observed 2026-10-12 on agy 1.3.3: started inside the repo, the agent tried to
+# run the repo's tests (RunCommand "python3 -m pytest ..."). Print mode cannot
+# ask for permission, so it soft-denied the call and the turn ended with no
+# review at all; every Gemini lens that day fell back to OpenRouter. The files
+# it needs are already inlined, so it runs from an empty directory and the
+# prompt says plainly that it cannot run or read anything.
+if grep -q "^$repo|" "$ARL_STUB_CWD"; then
+  bad "agy was started inside the repo, where it tries to run the tests"
+else
+  ok "agy is not started inside the repo"
+fi
+if [ -s "$ARL_STUB_CWD" ] && ! grep -qv '|0$' "$ARL_STUB_CWD"; then
+  ok "agy starts in an empty directory"
+else
+  bad "agy started in a non-empty directory: $(head -c 200 "$ARL_STUB_CWD")"
+fi
+grep -q 'You have no tools' "$ARL_STUB_STDIN" \
+  && ok "prompt tells the reviewer it has no tools" \
+  || bad "prompt does not tell the reviewer it has no tools"
 
 # --- 4. stdin is well-formed NDJSON the CLI can parse ----------------------
 if "${ARL_STUB_PY:-python3}" -c '
