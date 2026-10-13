@@ -20,7 +20,11 @@ cat > "$stubdir/codex" <<'STUB'
 #!/usr/bin/env bash
 printf 'codex %s\n' "$*" >> "$ARL_STUB_CALLS"
 cat >/dev/null
-printf 'codex reviewed\nVERDICT: APPROVE\n'
+case "${ARL_STUB_CODEX:-}" in
+  limit)  echo "ERROR: You've hit your usage limit." >&2; exit 1 ;;
+  reject) printf 'real bug\nVERDICT: REJECT -- bug in A.swift\n' ;;
+  *)      printf 'codex reviewed\nVERDICT: APPROVE\n' ;;
+esac
 STUB
 cat > "$stubdir/curl" <<'STUB'
 #!/usr/bin/env bash
@@ -170,6 +174,38 @@ grep -q '^curl ' "$ARL_STUB_CALLS" && bad "a real Gemini REJECT triggered an Ope
 env -u OPENROUTER_API_KEY ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out8" "ctx" "$repo" >/dev/null 2>&1
 grep -qE '^VERDICT: REJECT -- gemini data lens failed to run' "${out8}.data.log" 2>/dev/null \
   && ok "without an OpenRouter key the agy failure fails closed" || bad "no-key agy failure did not fail closed"
+
+# --- a Codex correctness lens that fails to run falls back to OpenRouter ------
+# Same idea as the Gemini fallback: a usage limit or crash leaves no verdict, so
+# the lens reruns on the same model over OpenRouter. A real Codex REJECT stands.
+codex_panel="correctness=codex:gpt-5.6-luna,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash"
+
+: > "$ARL_STUB_CALLS"; out9="$work/codexlimit"
+ARL_STUB_CODEX=limit ARL_PANEL="$codex_panel" bash "$panel" "$work/d.diff" "$out9" "ctx" "$repo" >/dev/null 2>&1
+if grep -q 'openrouter reviewed' "${out9}.correctness.log" 2>/dev/null && grep -qE '^VERDICT: APPROVE' "${out9}.correctness.log"; then
+  ok "failed codex correctness lens is rerun on OpenRouter"
+else
+  bad "failed codex correctness lens was not rerun on OpenRouter"
+fi
+grep -q 'usage limit' "${out9}.correctness.codex.log" 2>/dev/null \
+  && ok "codex failure is kept in .codex.log" || bad "codex failure was discarded"
+grep -q 'openai/gpt-5.6-luna' "$ARL_STUB_CALLS" && ok "fallback uses the same model over OpenRouter" || bad "fallback did not call openai/gpt-5.6-luna"
+
+: > "$ARL_STUB_CALLS"; out10="$work/codexreject"
+ARL_STUB_CODEX=reject ARL_PANEL="$codex_panel" bash "$panel" "$work/d.diff" "$out10" "ctx" "$repo" >/dev/null 2>&1
+grep -qE '^VERDICT: REJECT -- bug in A.swift' "${out10}.correctness.log" 2>/dev/null \
+  && ok "a real Codex REJECT stands" || bad "a real Codex REJECT was replaced"
+grep -q 'openai/gpt-5.6-luna' "$ARL_STUB_CALLS" && bad "a real Codex REJECT triggered an OpenRouter rerun" || ok "a real Codex REJECT is not rerun"
+
+out11="$work/codexnokey"
+env -u OPENROUTER_API_KEY ARL_STUB_CODEX=limit ARL_PANEL="correctness=codex:gpt-5.6-luna" bash "$panel" "$work/d.diff" "$out11" "ctx" "$repo" >/dev/null 2>&1
+grep -qE '^VERDICT: REJECT' "${out11}.correctness.log" 2>/dev/null && ! grep -qE '^VERDICT: APPROVE' "${out11}.correctness.log" \
+  && ok "without an OpenRouter key the codex failure fails closed" || bad "no-key codex failure did not fail closed"
+
+out12="$work/codexstale"
+printf 'old\n' > "${out12}.correctness.codex.log"
+ARL_PANEL="$codex_panel" bash "$panel" "$work/d.diff" "$out12" "ctx" "$repo" >/dev/null 2>&1
+[ -e "${out12}.correctness.codex.log" ] && bad "a stale .codex.log survived a clean run" || ok "a stale .codex.log is cleared"
 
 printf '\n'
 [ "$fails" -eq 0 ] && { echo "panel: ALL PASS"; exit 0; } || { echo "panel: $fails FAILURE(S)"; exit 1; }

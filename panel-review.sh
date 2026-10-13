@@ -66,7 +66,8 @@ trap 'arl_unlock_prefix' EXIT
 # Three separate review rounds found this same hole one line further up each
 # time; putting it at the very top is what actually closes the class.
 arl_clear_logs "$OUT" correctness data ui || exit 2
-rm -f "$OUT".correctness.gemini.log "$OUT".data.gemini.log "$OUT".ui.gemini.log
+rm -f "$OUT".correctness.gemini.log "$OUT".data.gemini.log "$OUT".ui.gemini.log \
+  "$OUT".correctness.codex.log "$OUT".data.codex.log "$OUT".ui.codex.log
 
 DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
@@ -124,17 +125,24 @@ done
 unset IFS
 wait
 
-# Gemini lenses run on the subscription (agy) first; OpenRouter is the fallback.
+# Subscription lenses run first; OpenRouter is the fallback.
 # When agy fails to produce a review -- it errored, timed out, or gave no verdict --
 # that lens reruns on OpenRouter, and the agy log is kept beside it as
-# <lens>.gemini.log. A REJECT that Gemini actually wrote is a review and stands.
-# Without OPENROUTER_API_KEY the agy failure stays in place and fails closed.
+# <lens>.gemini.log. Codex works the same way: a usage limit or crash leaves no
+# VERDICT line, so the lens reruns on the same model over OpenRouter and the
+# codex log is kept as <lens>.codex.log. A REJECT either one actually wrote is a
+# review and stands. Without OPENROUTER_API_KEY the failure stays and fails closed.
 if [ -n "${OPENROUTER_API_KEY:-}" ]; then
   IFS=','
   for entry in $PANEL; do
     unset IFS
-    lens="${entry%%=*}"; rest="${entry#*=}"; backend="${rest%%:*}"
+    lens="${entry%%=*}"; rest="${entry#*=}"; backend="${rest%%:*}"; model="${rest#*:}"
     log="${OUT}.${lens}.log"
+    if [ "$backend" = codex ] && ! grep -qE '^[[:space:]]*VERDICT[[:space:]]*:' "$log" 2>/dev/null; then
+      mv "$log" "${OUT}.${lens}.codex.log" 2>/dev/null
+      env ARL_LENSES="$lens" ARL_NOOP=1 ARL_OPENROUTER_MODEL="openai/$model" \
+        "$here/openrouter-fanout-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
+    fi
     if [ "$backend" = gemini ] && grep -qE '^VERDICT: REJECT -- gemini [a-z]+ lens (failed to run|did not return a successful result|emitted no verdict|could not build its request)' "$log" 2>/dev/null; then
       mv "$log" "${OUT}.${lens}.gemini.log"
       env ARL_LENSES="$lens" ARL_NOOP=1 ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"         "$here/openrouter-fanout-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
