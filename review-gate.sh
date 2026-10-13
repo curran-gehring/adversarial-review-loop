@@ -83,6 +83,10 @@ if [ -n "$host" ]; then
   [ -n "$rdir" ] || { echo "error: could not create a temp dir on $host" >&2; exit 1; }
   printf '%s' "$context" > "$tmp/context.txt"
   scp -q "$diff"            "$host:$rdir/review.diff"
+  # The fan-out goes with the scripts beside it: every runner sources lenses.sh,
+  # and the panel its backends, from its own directory. Sent alone it died on
+  # the host before reviewing anything (2026-10-12).
+  scp -q "$(dirname "$fanout")"/*.sh "$host:$rdir/"
   scp -q "$fanout"          "$host:$rdir/fanout.sh"
   scp -q "$tmp/context.txt" "$host:$rdir/context.txt"
   # $rdir is mktemp output (safe charset). Context is read from a file via
@@ -93,12 +97,13 @@ if [ -n "$host" ]; then
   # NOTE: remote review is DIFF-SCOPED — only the unified diff is sent, not a repo
   # checkout, so the reviewer judges the (self-contained) diff. Use LOCAL mode if
   # you want the reviewer to open full source files for surrounding context.
-  ssh "$host" "ctx=\$(cat \"$rdir/context.txt\"); chmod +x \"$rdir/fanout.sh\"; bash \"$rdir/fanout.sh\" \"$rdir/review.diff\" \"$rdir/fan\" \"\$ctx\" \"$rdir\"" >/dev/null 2>&1 || true
+  ssh "$host" "ctx=\$(cat \"$rdir/context.txt\"); chmod +x \"$rdir\"/*.sh; bash \"$rdir/fanout.sh\" \"$rdir/review.diff\" \"$rdir/fan\" \"\$ctx\" \"$rdir\" > \"$rdir/fanout.out\" 2>&1" >/dev/null 2>&1 || true
   # A missing lens log (lens crashed) must not abort under `set -e`; the log was
   # pre-truncated to empty above, so a failed copy reads as "no verdict".
   for L in correctness data ui; do
     scp -q "$host:$rdir/fan.$L.log" "$prefix.$L.log" 2>/dev/null || true
   done
+  scp -q "$host:$rdir/fanout.out" "$tmp/fanout.out" 2>/dev/null || true
 else
   echo "• reviewing locally …"
   bash "$fanout" "$diff" "$prefix" "$context" "$root" >/dev/null 2>&1 || true
@@ -133,4 +138,10 @@ fi
 # SHA, which has no receipt — so there is nothing stale to clean up.
 echo "VERDICT: REJECT -- only $approve/3 lenses approved."
 echo "  lens logs: $logdir/fan.{correctness,data,ui}.log  — read the findings, fix, and re-run."
+# A lens with no verdict at all usually means the fan-out itself failed on the
+# host; its own output is the only record of why.
+if [ -s "$tmp/fanout.out" ] && ! grep -qiE '^[[:space:]]*VERDICT[[:space:]]*:' "$prefix".*.log 2>/dev/null; then
+  echo "  the fan-out on $host gave no verdicts; the end of its output:"
+  tail -n 20 "$tmp/fanout.out" | sed 's/^/    /'
+fi
 exit 1
