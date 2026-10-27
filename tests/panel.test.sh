@@ -171,9 +171,16 @@ grep -qE '^VERDICT: REJECT -- bug in A.swift' "${out7}.data.log" 2>/dev/null \
 grep -q '^curl ' "$ARL_STUB_CALLS" && bad "a real Gemini REJECT triggered an OpenRouter rerun" || ok "a real Gemini REJECT is not rerun"
 
 : > "$ARL_STUB_CALLS"; out8="$work/nokey"
-env -u OPENROUTER_API_KEY ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out8" "ctx" "$repo" >/dev/null 2>&1
+env -u OPENROUTER_API_KEY -u ARL_PROXY_TOKEN ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out8" "ctx" "$repo" >/dev/null 2>&1
 grep -qE '^VERDICT: REJECT -- gemini data lens failed to run' "${out8}.data.log" 2>/dev/null \
   && ok "without an OpenRouter key the agy failure fails closed" || bad "no-key agy failure did not fail closed"
+
+# The proxy's app token alone is enough for the fallback (no real key on this host).
+: > "$ARL_STUB_CALLS"; out8b="$work/proxytoken"
+env -u OPENROUTER_API_KEY ARL_PROXY_TOKEN=tok-proxy ARL_OPENROUTER_BASE_URL=https://arl-openrouter-proxy.example.workers.dev/api/v1 \
+  ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out8b" "ctx" "$repo" >/dev/null 2>&1
+grep -qE '^VERDICT: APPROVE' "${out8b}.data.log" 2>/dev/null \
+  && ok "ARL_PROXY_TOKEN alone lets a failed agy lens fall back" || bad "ARL_PROXY_TOKEN alone did not enable the fallback"
 
 # --- a Codex correctness lens that fails to run falls back to OpenRouter ------
 # Same idea as the Gemini fallback: a usage limit or crash leaves no verdict, so
@@ -198,7 +205,7 @@ grep -qE '^VERDICT: REJECT -- bug in A.swift' "${out10}.correctness.log" 2>/dev/
 grep -q 'openai/gpt-5.6-luna' "$ARL_STUB_CALLS" && bad "a real Codex REJECT triggered an OpenRouter rerun" || ok "a real Codex REJECT is not rerun"
 
 out11="$work/codexnokey"
-env -u OPENROUTER_API_KEY ARL_STUB_CODEX=limit ARL_PANEL="correctness=codex:gpt-5.6-luna" bash "$panel" "$work/d.diff" "$out11" "ctx" "$repo" >/dev/null 2>&1
+env -u OPENROUTER_API_KEY -u ARL_PROXY_TOKEN ARL_STUB_CODEX=limit ARL_PANEL="correctness=codex:gpt-5.6-luna" bash "$panel" "$work/d.diff" "$out11" "ctx" "$repo" >/dev/null 2>&1
 grep -qE '^VERDICT: REJECT' "${out11}.correctness.log" 2>/dev/null && ! grep -qE '^VERDICT: APPROVE' "${out11}.correctness.log" \
   && ok "without an OpenRouter key the codex failure fails closed" || bad "no-key codex failure did not fail closed"
 

@@ -18,12 +18,19 @@ limited, the proxy fails the same way a direct call would.
 
 ## Using it from another machine
 
-No change to the review loop — it already honours `ARL_OPENROUTER_BASE_URL` and
-sends `OPENROUTER_API_KEY` as the bearer. On a proxied machine that variable holds
-the **app token**, not the real key:
+Point the review loop at the worker and give it the **app token** in its own
+variable:
 
     export ARL_OPENROUTER_BASE_URL=https://arl-openrouter-proxy.<subdomain>.workers.dev/api/v1
-    export OPENROUTER_API_KEY=<app token>
+    export ARL_PROXY_TOKEN=<app token>
+
+For any base URL other than openrouter.ai the loop sends `ARL_PROXY_TOKEN` as the
+bearer. Keep the app token out of `OPENROUTER_API_KEY`: other tools on the same
+machine read that variable as the real key, and sourcing a secrets file that sets
+it must not break the proxy (on 2026-10-27 that swap made every proxied lens
+return 401 "bad or missing app token"). A host that only sets
+`OPENROUTER_API_KEY=<app token>` still works, because the loop falls back to it
+when `ARL_PROXY_TOKEN` is unset.
 
 The correctness lens runs on `codex` against a ChatGPT subscription and never
 touches this worker — so that machine also needs `codex` logged in. Without it you

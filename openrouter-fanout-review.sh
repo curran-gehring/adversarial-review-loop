@@ -17,7 +17,12 @@
 # current contents of every file the diff touches are inlined below the diff.
 #
 # env:
-#   OPENROUTER_API_KEY      required. Never commit this; export it in your shell.
+#   OPENROUTER_API_KEY      the real OpenRouter key, sent on direct calls. Never
+#                           commit it; export it in your shell.
+#   ARL_PROXY_TOKEN         the review proxy's app token (openrouter-proxy/), sent
+#                           instead of OPENROUTER_API_KEY whenever the base URL is
+#                           not openrouter.ai. Kept separate so a host can hold the
+#                           real key for other tools without breaking the proxy.
 #   ARL_OPENROUTER_MODEL    required. Exact OpenRouter slug, e.g. "vendor/model-name".
 #                           Deliberately has no default: a wrong hardcoded slug
 #                           fails as a confusing 400 rather than a clear message.
@@ -61,8 +66,15 @@ arl_clear_logs "$OUT" $ARL_LENSES || exit 2
 
 # Fail fast at the boundary: a missing credential or model must not surface as
 # three REJECTs that look like the reviewer found real bugs.
-[ -n "${OPENROUTER_API_KEY:-}" ] || {
-  echo "openrouter-fanout: OPENROUTER_API_KEY is not set (export it; do not commit it)" >&2; exit 2; }
+BASE_URL="${ARL_OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
+# A proxy takes its own app token; OPENROUTER_API_KEY is the fallback there only
+# for hosts set up before ARL_PROXY_TOKEN existed.
+case "$BASE_URL" in
+  https://openrouter.ai/*) BEARER="${OPENROUTER_API_KEY:-}"; need="OPENROUTER_API_KEY" ;;
+  *) BEARER="${ARL_PROXY_TOKEN:-${OPENROUTER_API_KEY:-}}"; need="ARL_PROXY_TOKEN (the proxy app token) or OPENROUTER_API_KEY" ;;
+esac
+[ -n "$BEARER" ] || {
+  echo "openrouter-fanout: $need is not set for $BASE_URL (export it; do not commit it)" >&2; exit 2; }
 [ -n "${ARL_OPENROUTER_MODEL:-}" ] || {
   echo "openrouter-fanout: ARL_OPENROUTER_MODEL is not set (exact OpenRouter slug, e.g. vendor/model-name)" >&2; exit 2; }
 arl_require_diff "$DIFF" || exit 2
@@ -75,8 +87,6 @@ cd "$REPO" || { echo "openrouter-fanout: cannot cd to repo: $REPO" >&2; exit 2; 
 
 TIMEOUT="${ARL_OPENROUTER_TIMEOUT:-600}"
 MAX_BYTES="${ARL_OPENROUTER_MAX_BYTES:-400000}"
-BASE_URL="${ARL_OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
-
 tmp="$(mktemp -d)"
 # Replaces the unlock-only trap set above; it must still release the lock, or a
 # standalone run leaks its prefix lock and the next one refuses to start.
@@ -87,7 +97,7 @@ chmod 700 "$tmp"
 cfg="$tmp/curl.cfg"
 umask 077
 cat > "$cfg" <<EOF
-header = "Authorization: Bearer ${OPENROUTER_API_KEY}"
+header = "Authorization: Bearer ${BEARER}"
 header = "Content-Type: application/json"
 EOF
 

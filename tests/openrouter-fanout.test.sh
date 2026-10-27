@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     --data-binary) payload="${2#@}"; shift 2 ;;
-    -K) shift 2 ;;
+    -K) [ -n "${ARL_STUB_CFG:-}" ] && cat "$2" >> "$ARL_STUB_CFG"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -65,7 +65,7 @@ run_fanout() {
 
 # --- 1. fail fast on missing credentials -----------------------------------
 outp="$work/nokey"
-if run_fanout "$outp" OPENROUTER_API_KEY= ARL_OPENROUTER_MODEL=some/model >"$work/nokey.out" 2>&1; then
+if run_fanout "$outp" OPENROUTER_API_KEY= ARL_PROXY_TOKEN= ARL_OPENROUTER_MODEL=some/model >"$work/nokey.out" 2>&1; then
   bad "missing OPENROUTER_API_KEY should exit non-zero"
 else
   grep -qi 'OPENROUTER_API_KEY' "$work/nokey.out" \
@@ -155,6 +155,45 @@ for lens in correctness data ui; do
     && ok "${lens} fails closed when curl exits non-zero" \
     || bad "${lens} did not fail closed on curl failure"
 done
+
+# --- 10. which credential is sent ------------------------------------------
+# A proxy base URL wants the proxy's app token (ARL_PROXY_TOKEN); a direct
+# OpenRouter call wants the real key. Sourcing ~/.claude/secrets.env puts the real
+# key in OPENROUTER_API_KEY, so the proxy must not take its bearer from there when
+# ARL_PROXY_TOKEN is set.
+proxy_url="https://arl-openrouter-proxy.example.workers.dev/api/v1"
+bearer_for() {           # bearer_for <name> <env...>  -> prints the Bearer value sent
+  local name="$1"; shift
+  export ARL_STUB_CFG="$work/$name.cfg"; : > "$ARL_STUB_CFG"
+  run_fanout "$work/$name" ARL_OPENROUTER_MODEL=vendor/model-x ARL_LENSES=data "$@" > "$work/$name.out" 2>&1
+  unset ARL_STUB_CFG
+  sed -n 's/^header = "Authorization: Bearer \(.*\)"$/\1/p' "$work/$name.cfg" | head -1
+}
+
+[ "$(bearer_for viaproxy ARL_OPENROUTER_BASE_URL="$proxy_url" ARL_PROXY_TOKEN=tok-proxy OPENROUTER_API_KEY=sk-real)" = tok-proxy ] \
+  && ok "a proxy base URL sends ARL_PROXY_TOKEN, not the real key" \
+  || bad "a proxy base URL did not send ARL_PROXY_TOKEN"
+
+[ "$(bearer_for direct ARL_OPENROUTER_BASE_URL= ARL_PROXY_TOKEN=tok-proxy OPENROUTER_API_KEY=sk-real)" = sk-real ] \
+  && ok "a direct OpenRouter call sends the real key" \
+  || bad "a direct OpenRouter call did not send OPENROUTER_API_KEY"
+
+[ "$(bearer_for tokenonly ARL_OPENROUTER_BASE_URL="$proxy_url" ARL_PROXY_TOKEN=tok-proxy OPENROUTER_API_KEY=)" = tok-proxy ] \
+  && ok "a proxy run needs only ARL_PROXY_TOKEN" \
+  || bad "a proxy run without OPENROUTER_API_KEY did not run on ARL_PROXY_TOKEN"
+
+[ "$(bearer_for legacy ARL_OPENROUTER_BASE_URL="$proxy_url" ARL_PROXY_TOKEN= OPENROUTER_API_KEY=tok-legacy)" = tok-legacy ] \
+  && ok "a proxy run without ARL_PROXY_TOKEN still sends OPENROUTER_API_KEY" \
+  || bad "a proxy run without ARL_PROXY_TOKEN broke the old OPENROUTER_API_KEY setup"
+
+if run_fanout "$work/proxynone" ARL_OPENROUTER_BASE_URL="$proxy_url" ARL_PROXY_TOKEN= OPENROUTER_API_KEY= \
+     ARL_OPENROUTER_MODEL=vendor/model-x > "$work/proxynone.out" 2>&1; then
+  bad "a proxy run with no credential should exit non-zero"
+else
+  grep -q 'ARL_PROXY_TOKEN' "$work/proxynone.out" \
+    && ok "a proxy run with no credential names ARL_PROXY_TOKEN" \
+    || bad "a proxy run with no credential does not name ARL_PROXY_TOKEN"
+fi
 
 printf '\n'
 if [ "$fails" -eq 0 ]; then

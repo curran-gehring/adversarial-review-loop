@@ -13,9 +13,9 @@
 /// by re-putting one secret. A leaked OpenRouter key can be spent on any model,
 /// at any volume, until someone notices the bill.
 ///
-/// No code change is needed in the review loop: it already honours
-/// ARL_OPENROUTER_BASE_URL, and it sends OPENROUTER_API_KEY as the bearer. On a
-/// proxied machine that variable holds the app token, not the real key.
+/// The review loop honours ARL_OPENROUTER_BASE_URL and, for any base URL other
+/// than openrouter.ai, sends ARL_PROXY_TOKEN (the app token) as the bearer,
+/// falling back to OPENROUTER_API_KEY when ARL_PROXY_TOKEN is unset.
 
 const UPSTREAM = "https://openrouter.ai/api/v1/chat/completions";
 const PATH = "/api/v1/chat/completions";

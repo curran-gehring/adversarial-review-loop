@@ -23,7 +23,8 @@
 #   ARL_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
 # Backends: codex (ChatGPT subscription, reads the repo), claude (Claude
 # subscription), gemini (Antigravity CLI on the Google AI Pro/Ultra
-# subscription), openrouter (metered; needs OPENROUTER_API_KEY).
+# subscription), openrouter (metered; needs OPENROUTER_API_KEY, or ARL_PROXY_TOKEN
+# behind the review proxy).
 #
 # The Gemini lenses run on the `gemini` backend (agy, Curran's Gemini
 # subscription) and fall back to openrouter only when agy fails to produce a
@@ -92,8 +93,8 @@ for entry in $PANEL; do
   esac
   [ -n "$model" ] && [ "$model" != "$rest" ] \
     || { echo "panel-review: lens '$lens' has no model (expected backend:model)" >&2; exit 2; }
-  if [ "$backend" = "openrouter" ] && [ -z "${OPENROUTER_API_KEY:-}" ]; then
-    echo "panel-review: lens '$lens' uses openrouter but OPENROUTER_API_KEY is not set" >&2; exit 2
+  if [ "$backend" = "openrouter" ] && [ -z "${OPENROUTER_API_KEY:-}${ARL_PROXY_TOKEN:-}" ]; then
+    echo "panel-review: lens '$lens' uses openrouter but neither OPENROUTER_API_KEY nor ARL_PROXY_TOKEN is set" >&2; exit 2
   fi
   if [ "$backend" = "gemini" ] && ! command -v "${ARL_GEMINI_BIN:-agy}" >/dev/null 2>&1; then
     echo "panel-review: lens '$lens' uses gemini but '${ARL_GEMINI_BIN:-agy}' is not on PATH (winget install Google.AntigravityCLI)" >&2; exit 2
@@ -131,8 +132,9 @@ wait
 # <lens>.gemini.log. Codex works the same way: a usage limit or crash leaves no
 # VERDICT line, so the lens reruns on the same model over OpenRouter and the
 # codex log is kept as <lens>.codex.log. A REJECT either one actually wrote is a
-# review and stands. Without OPENROUTER_API_KEY the failure stays and fails closed.
-if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+# review and stands. Without OPENROUTER_API_KEY or ARL_PROXY_TOKEN the failure
+# stays and fails closed.
+if [ -n "${OPENROUTER_API_KEY:-}${ARL_PROXY_TOKEN:-}" ]; then
   IFS=','
   for entry in $PANEL; do
     unset IFS
