@@ -41,7 +41,44 @@ touches, are faster and catch more because each has one job:
 - **ui** — view/component state, list/key identity, framework/API validity for
   the target platform, reuse/duplication, no regressions to unrelated surfaces.
 
-Tune the lens prompts in `fanout-review.sh` to your stack.
+The lens prompts live in `lenses.sh`, shared by every backend.
+
+## Repository review rules
+
+The lens prompts are general. What a repository has already learned, such as a
+read that must run in autocommit or a host its tests must never load, goes in
+`REVIEW-RULES.md` at the repo root, and every backend sends the sections that
+apply to the diff:
+
+```markdown
+# Review rules (this preamble is for people and is never sent)
+
+## Postgres reads
+paths: backend/*.py *.sql
+
+- Every read connection runs in autocommit. An open read transaction blocks
+  the minute writer.
+```
+
+- Each `## ` section starts with a `paths:` line of shell patterns, matched
+  against the repo-relative paths the diff touches (old and new names). `*`
+  matches across `/`, and `paths: *` applies to every diff. `### ` headings stay
+  inside their section.
+- A section is sent when any pattern matches any changed path, after the
+  caller's context, with an instruction to REJECT a change that breaks a rule
+  within the lens's scope.
+- The selected sections are capped at `ARL_RULES_MAX_BYTES` (default 12000),
+  since codex takes its prompt on argv. A section without a `paths:` line, an
+  empty `paths:` line, or a selection over the cap fails the review instead of
+  being skipped.
+- Rules are read from `repo_dir`. Pass a checkout at the merge base, as the
+  protocol already requires, so a diff is judged by the rules it was written
+  against rather than ones it rewrites. `review-gate.sh` reads the file from the
+  base commit itself; `ARL_RULES_FILE` names a different file.
+
+Write a rule when a defect has shipped or been caught once and a reviewer could
+have seen it in the diff. State what must hold and why; one example of the
+wrong form helps more than a paragraph of explanation.
 
 ## The aggregation rule
 

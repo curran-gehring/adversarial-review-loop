@@ -145,3 +145,148 @@ arl_clear_logs() {
     fi
   done
 }
+
+# --- repository review rules -------------------------------------------------
+# A lens that judges a diff against only its general knowledge passes changes
+# that break rules the repository has already paid to learn. A repo states those
+# rules in REVIEW-RULES.md at its root:
+#
+#   # Anything before the first "## " heading is for people and is never sent.
+#
+#   ## Postgres reads
+#   paths: backend/*.py *.sql
+#
+#   - Every read connection runs in autocommit; an open read transaction
+#     blocks the minute writer.
+#
+# Each "## " section must begin (blank lines aside) with a `paths:` line of
+# space-separated shell patterns, matched against repo-relative paths with
+# `case`, so `*` also matches across "/" and `paths: *` applies to every diff.
+# "### " headings stay inside their section. A section is sent when any of its
+# patterns matches any path the diff touches (old or new name). Reviewers that
+# cannot browse the repo would never go looking for the file, so the selected
+# sections travel in the prompt, appended to the caller's context.
+#
+# Misconfiguration fails the review rather than skipping the rule: a rule that
+# silently stops applying is the failure this exists to prevent.
+
+# arl_changed_paths <diff> — print each path the diff touches, sorted, unique.
+# Reads file headers only: `diff --git a/P b/P` (binary and mode-only changes
+# have no ---/+++ lines), rename/copy from/to, and ---/+++ lines before a
+# file's first hunk. Inside a hunk, a removed line "-- a/x" reads "--- a/x" and
+# must not count as a header. Git-quoted paths lose their quotes but keep any
+# escapes, so a path with non-ASCII characters may not match its pattern.
+arl_changed_paths() {
+  awk '
+    function emit(p) {
+      sub(/\t.*$/, "", p)
+      if (p ~ /^".*"$/) p = substr(p, 2, length(p) - 2)
+      if (p == "/dev/null" || p == "") return
+      sub(/^[ab]\//, "", p)
+      print p
+    }
+    { sub(/\r$/, "") }
+    NR == 1 || /^diff / { header = 1 }
+    /^@@/ { header = 0; next }
+    !header { next }
+    /^diff --git / {
+      rest = substr($0, 12); n = length(rest)
+      if ((n - 5) % 2 == 0) {
+        half = (n - 5) / 2
+        a = substr(rest, 3, half); b = substr(rest, half + 6)
+        if (substr(rest, 1, 2) == "a/" && substr(rest, half + 3, 3) == " b/" && a == b) print a
+      }
+      next
+    }
+    /^(rename|copy) (from|to) / { p = $0; sub(/^[a-z]+ [a-z]+ /, "", p); print p; next }
+    /^(---|\+\+\+) / { emit(substr($0, 5)) }
+  ' "$1" | sort -u
+}
+
+# _arl_rules_match <patterns> <paths> — succeed if any pattern matches any
+# path. Runs in a subshell so `set -f` (no expansion of the patterns against
+# the current directory) cannot leak into the caller.
+_arl_rules_match() (
+  set -f
+  for _arl_pat in $1; do
+    while IFS= read -r _arl_p; do
+      # shellcheck disable=SC2254  # the pattern is meant to match
+      case "$_arl_p" in $_arl_pat) exit 0 ;; esac
+    done <<ARL_PATHS
+$2
+ARL_PATHS
+  done
+  exit 1
+)
+
+# arl_with_repo_rules <context> <diff> <repo> — print <context> followed by the
+# REVIEW-RULES.md sections that match <diff>, or <context> unchanged when none
+# match or the repo has no rules file. ARL_RULES_FILE names the file instead
+# (review-gate.sh points it at the base commit's copy). ARL_RULES_MAX_BYTES
+# (default 12000) caps the selected sections, because codex takes its prompt
+# on argv and Windows caps a command line near 32 KB. Returns non-zero, with a
+# message on stderr, on a malformed file or an oversized selection.
+arl_with_repo_rules() {
+  _arl_ctx="$1"
+  _arl_rf="${ARL_RULES_FILE:-$3/REVIEW-RULES.md}"
+  if [ -n "${ARL_RULES_FILE:-}" ]; then
+    [ -f "$_arl_rf" ] || { echo "arl: ARL_RULES_FILE does not exist: $_arl_rf" >&2; return 1; }
+  elif [ ! -f "$_arl_rf" ]; then
+    printf '%s' "$_arl_ctx"; return 0
+  fi
+  _arl_paths="$(arl_changed_paths "$2")"
+  _arl_cr="$(printf '\r')"
+
+  _arl_sel=""; _arl_sec=""; _arl_title=""; _arl_want=0; _arl_n=0; _arl_state=preamble
+  while IFS= read -r _arl_line || [ -n "$_arl_line" ]; do
+    _arl_n=$((_arl_n + 1))
+    _arl_line="${_arl_line%"$_arl_cr"}"
+    case "$_arl_line" in
+      '## '*)
+        if [ "$_arl_state" = paths ]; then
+          echo "arl: $_arl_rf:$_arl_n: '$_arl_title' must begin with a paths: line" >&2; return 1
+        fi
+        [ "$_arl_want" = 1 ] && _arl_sel="$_arl_sel$_arl_title
+$_arl_sec
+"
+        _arl_title="$_arl_line"; _arl_sec=""; _arl_want=0; _arl_state=paths
+        continue ;;
+    esac
+    case "$_arl_state" in
+      preamble) continue ;;
+      paths)
+        case "$_arl_line" in
+          '') continue ;;
+          paths:*)
+            _arl_pats="${_arl_line#paths:}"
+            # shellcheck disable=SC2086  # word-splitting to test for a pattern; globbing is off
+            [ -n "$(set -f; printf '%s' $_arl_pats)" ] || {
+              echo "arl: $_arl_rf:$_arl_n: '$_arl_title' has an empty paths: line" >&2; return 1; }
+            _arl_rules_match "$_arl_pats" "$_arl_paths" && _arl_want=1
+            _arl_state=body
+            continue ;;
+          *)
+            echo "arl: $_arl_rf:$_arl_n: '$_arl_title' must begin with a paths: line" >&2; return 1 ;;
+        esac ;;
+    esac
+    _arl_sec="$_arl_sec$_arl_line
+"
+  done < "$_arl_rf"
+  if [ "$_arl_state" = paths ]; then
+    echo "arl: $_arl_rf: '$_arl_title' must begin with a paths: line" >&2; return 1
+  fi
+  [ "$_arl_want" = 1 ] && _arl_sel="$_arl_sel$_arl_title
+$_arl_sec
+"
+
+  [ -n "$_arl_sel" ] || { printf '%s' "$_arl_ctx"; return 0; }
+  _arl_size="$(printf '%s' "$_arl_sel" | wc -c | tr -d ' ')"
+  if [ "$_arl_size" -gt "${ARL_RULES_MAX_BYTES:-12000}" ]; then
+    echo "arl: the rules selected from $_arl_rf are $_arl_size bytes, over ARL_RULES_MAX_BYTES=${ARL_RULES_MAX_BYTES:-12000}; narrow their paths: patterns or shorten them" >&2
+    return 1
+  fi
+  printf '%s%sRepository review rules (from REVIEW-RULES.md; only the sections whose paths match this diff). They record defects this repository has already shipped or caught. Apply the ones within your lens: a change that breaks one is a defect, so REJECT it and name the rule.\n\n%s' \
+    "$_arl_ctx" "${_arl_ctx:+
+
+}" "$_arl_sel"
+}

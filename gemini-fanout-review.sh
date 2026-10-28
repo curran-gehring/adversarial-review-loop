@@ -75,6 +75,10 @@ command -v "$BIN" >/dev/null 2>&1 || {
   echo "gemini-fanout: '$BIN' not found on PATH (install: winget install Google.AntigravityCLI)" >&2; exit 2; }
 arl_require_diff "$DIFF" || exit 2
 
+# The repo's review rules join the context before the cd, while a relative repo
+# path still resolves — see arl_with_repo_rules in lenses.sh.
+EXTRA="$(arl_with_repo_rules "$EXTRA" "$DIFF" "$REPO")" || exit 2
+
 PY="$(arl_pick_python)" || {
   echo "gemini-fanout: no working Python found (tried ${ARL_PYTHON:+$ARL_PYTHON }python3 python py); set ARL_PYTHON" >&2; exit 2; }
 

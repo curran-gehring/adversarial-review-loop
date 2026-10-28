@@ -92,6 +92,56 @@ grep -q 'REMOTE_FAILURE_MARKER' "$work/bad.out" \
 left="$(find "$TMPDIR" -maxdepth 1 -name 'arl.*' | wc -l | tr -d ' ')"
 [ "$left" = 0 ] && ok "remote workspaces are removed" || bad "$left remote workspace(s) left behind"
 
+# --- 4. review rules come from the base commit --------------------------------
+# The gate reviews a working tree at HEAD, so the repo's own REVIEW-RULES.md is
+# the one the diff may have rewritten. A change must be judged by the rules it
+# was written against, locally and on a remote host alike.
+cp "$here/../lenses.sh" "$tools/lenses.sh"
+cat > "$tools/rules-fan.sh" <<'SH'
+#!/usr/bin/env bash
+. "$(dirname "$0")/lenses.sh" || exit 3
+arl_with_repo_rules "$3" "$1" "$4" > "$ARL_TEST_CTX" || exit 3
+for lens in correctness data ui; do printf 'checked\nVERDICT: APPROVE\n' > "$2.$lens.log"; done
+SH
+chmod +x "$tools/rules-fan.sh"
+
+rrepo="$work/rules-repo"
+git init -q -b main "$rrepo"
+printf '## Base rule\npaths: *\n- BASE_RULE_MARKER\n' > "$rrepo/REVIEW-RULES.md"
+git -C "$rrepo" add REVIEW-RULES.md
+git -C "$rrepo" -c user.email=t@t -c user.name=t commit -q -m base
+git -C "$rrepo" checkout -q -b change
+printf '## Weakened rule\npaths: *\n- HEAD_RULE_MARKER\n' > "$rrepo/REVIEW-RULES.md"
+printf 'x = 1\n' > "$rrepo/a.py"
+git -C "$rrepo" add REVIEW-RULES.md a.py
+git -C "$rrepo" -c user.email=t@t -c user.name=t commit -q -m change
+
+for mode in local remote; do
+  ctx="$work/rules-$mode.ctx"; : > "$ctx"
+  if [ "$mode" = remote ]; then
+    ( cd "$rrepo" && ARL_TEST_CTX="$ctx" ARL_REVIEW_HOST=fakehost ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/rules-$mode.out" 2>&1
+  else
+    ( cd "$rrepo" && env -u ARL_REVIEW_HOST ARL_TEST_CTX="$ctx" ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/rules-$mode.out" 2>&1
+  fi
+  grep -q BASE_RULE_MARKER "$ctx" && ! grep -q HEAD_RULE_MARKER "$ctx" \
+    && ok "$mode review uses the base commit's rules" \
+    || bad "$mode review did not use the base commit's rules: $(tr '\n' '|' < "$ctx")"
+done
+
+# A base with no rules file reviews without rules, even when the diff adds one.
+nrepo="$work/norules-repo"
+git init -q -b main "$nrepo"
+git -C "$nrepo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m base
+git -C "$nrepo" checkout -q -b change
+printf '## New rule\npaths: *\n- ADDED_RULE_MARKER\n' > "$nrepo/REVIEW-RULES.md"
+git -C "$nrepo" add REVIEW-RULES.md
+git -C "$nrepo" -c user.email=t@t -c user.name=t commit -q -m change
+ctx="$work/norules.ctx"; : > "$ctx"
+( cd "$nrepo" && env -u ARL_REVIEW_HOST ARL_TEST_CTX="$ctx" ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/norules.out" 2>&1
+grep -q '^VERDICT: APPROVE' "$work/norules.out" && ! grep -q ADDED_RULE_MARKER "$ctx" \
+  && ok "a base without rules reviews without them" \
+  || bad "a base without rules: $(tail -c 300 "$work/norules.out")"
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'review-gate: ALL PASS\n'; exit 0

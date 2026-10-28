@@ -75,6 +75,18 @@ if [ ! -s "$diff" ]; then
   exit 0
 fi
 
+# Review rules come from the BASE commit: the working tree is at HEAD, where the
+# diff under review may have rewritten them. A base without REVIEW-RULES.md
+# gives an empty file, so the review runs without rules rather than with ones
+# the diff added. See arl_with_repo_rules in lenses.sh.
+rules="$tmp/review-rules.md"
+if git cat-file -e "${basesha}:REVIEW-RULES.md" 2>/dev/null; then
+  git show "${basesha}:REVIEW-RULES.md" > "$rules" \
+    || { echo "error: could not read REVIEW-RULES.md from $basesha" >&2; exit 1; }
+else
+  : > "$rules"
+fi
+
 if [ -n "$host" ]; then
   echo "• reviewing on $host …"
   # Unique per-run remote workspace so concurrent reviews on the same host can't
@@ -89,6 +101,8 @@ if [ -n "$host" ]; then
   scp -q "$(dirname "$fanout")"/*.sh "$host:$rdir/"
   scp -q "$fanout"          "$host:$rdir/fanout.sh"
   scp -q "$tmp/context.txt" "$host:$rdir/context.txt"
+  # $rdir is the fan-out's repo_dir on the host, so the rules go where it looks.
+  scp -q "$rules"           "$host:$rdir/REVIEW-RULES.md"
   # $rdir is mktemp output (safe charset). Context is read from a file via
   # command substitution and passed quoted, so it is NEVER re-parsed by the
   # remote shell — no injection from ARL_CONTEXT. `|| true`: judge by the logs,
@@ -106,7 +120,7 @@ if [ -n "$host" ]; then
   scp -q "$host:$rdir/fanout.out" "$tmp/fanout.out" 2>/dev/null || true
 else
   echo "• reviewing locally …"
-  bash "$fanout" "$diff" "$prefix" "$context" "$root" >/dev/null 2>&1 || true
+  ARL_RULES_FILE="$rules" bash "$fanout" "$diff" "$prefix" "$context" "$root" >/dev/null 2>&1 || true
 fi
 
 # Convenience copy for the author to read after a REJECT (NOT the decision input).

@@ -74,6 +74,10 @@ arl_clear_logs "$OUT" $ARL_LENSES || exit 1
 
 arl_require_diff "$DIFF" || exit 1
 
+# The repo's review rules join the context before the cd, while a relative repo
+# path still resolves — see arl_with_repo_rules in lenses.sh.
+EXTRA="$(arl_with_repo_rules "$EXTRA" "$DIFF" "$REPO")" || exit 1
+
 cd "$REPO" || { echo "fanout-review: cannot cd to repo: $REPO" >&2; exit 1; }
 
 C="$ARL_LENS_CORRECTNESS"
