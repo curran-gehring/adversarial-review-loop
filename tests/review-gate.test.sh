@@ -116,14 +116,17 @@ printf 'x = 1\n' > "$rrepo/a.py"
 git -C "$rrepo" add REVIEW-RULES.md a.py
 git -C "$rrepo" -c user.email=t@t -c user.name=t commit -q -m change
 
+# An ARL_RULES_FILE already set in the environment (on this machine, or on the
+# review host, which the stub ssh shares) must not replace the base's rules.
+printf '## Stale rule\npaths: *\n- STALE_RULE_MARKER\n' > "$work/stale-rules.md"
 for mode in local remote; do
   ctx="$work/rules-$mode.ctx"; : > "$ctx"
   if [ "$mode" = remote ]; then
-    ( cd "$rrepo" && ARL_TEST_CTX="$ctx" ARL_REVIEW_HOST=fakehost ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/rules-$mode.out" 2>&1
+    ( cd "$rrepo" && ARL_RULES_FILE="$work/stale-rules.md" ARL_TEST_CTX="$ctx" ARL_REVIEW_HOST=fakehost ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/rules-$mode.out" 2>&1
   else
-    ( cd "$rrepo" && env -u ARL_REVIEW_HOST ARL_TEST_CTX="$ctx" ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/rules-$mode.out" 2>&1
+    ( cd "$rrepo" && env -u ARL_REVIEW_HOST ARL_RULES_FILE="$work/stale-rules.md" ARL_TEST_CTX="$ctx" ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/rules-$mode.out" 2>&1
   fi
-  grep -q BASE_RULE_MARKER "$ctx" && ! grep -q HEAD_RULE_MARKER "$ctx" \
+  grep -q BASE_RULE_MARKER "$ctx" && ! grep -q -e HEAD_RULE_MARKER -e STALE_RULE_MARKER "$ctx" \
     && ok "$mode review uses the base commit's rules" \
     || bad "$mode review did not use the base commit's rules: $(tr '\n' '|' < "$ctx")"
 done
