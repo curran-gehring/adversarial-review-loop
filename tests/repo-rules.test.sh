@@ -99,6 +99,22 @@ diff -u "$work/quoted.want" "$work/quoted.got" >/dev/null \
   && ok "arl_changed_paths decodes git-quoted paths, including binary-only headers" \
   || bad "arl_changed_paths got: $(tr '\n' '|' < "$work/quoted.got")"
 
+# A path that itself contains " b/" must not be split there. A binary change
+# has only the diff --git line, so that line alone has to name the file.
+cat > "$work/spaced.diff" <<'DIFF'
+diff --git a/docs b/logo.png b/docs b/logo.png
+index 1111111..2222222 100644
+Binary files a/docs b/logo.png and b/docs b/logo.png differ
+diff --git a/a b/c b/d.txt b/a b/c b/d.txt
+old mode 100644
+new mode 100755
+DIFF
+printf '%s\n' 'a b/c b/d.txt' 'docs b/logo.png' | sort > "$work/spaced.want"
+arl_changed_paths "$work/spaced.diff" > "$work/spaced.got" 2>&1
+diff -u "$work/spaced.want" "$work/spaced.got" >/dev/null \
+  && ok "a path containing ' b/' is read whole from a binary or mode-only header" \
+  || bad "a path containing ' b/' was misread: $(tr '\n' '|' < "$work/spaced.got")"
+
 # A file header that yields no path must stop the review, not drop the file.
 cat > "$work/unreadable.diff" <<'DIFF'
 diff --git a/one b/two
