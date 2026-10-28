@@ -283,11 +283,13 @@ ARL_PATHS
 arl_with_repo_rules() {
   _arl_ctx="$1"
   _arl_rf="${ARL_RULES_FILE:-$3/REVIEW-RULES.md}"
-  if [ -n "${ARL_RULES_FILE:-}" ]; then
-    [ -f "$_arl_rf" ] || { echo "arl: ARL_RULES_FILE does not exist: $_arl_rf" >&2; return 1; }
-  elif [ ! -f "$_arl_rf" ]; then
+  if [ -z "${ARL_RULES_FILE:-}" ] && [ ! -e "$_arl_rf" ]; then
     printf '%s' "$_arl_ctx"; return 0
   fi
+  # Present but unusable is not absent: the loop below would read nothing from
+  # it and the review would run without the rules.
+  [ -f "$_arl_rf" ] && [ -r "$_arl_rf" ] || {
+    echo "arl: review rules file is missing, not a file, or unreadable: $_arl_rf" >&2; return 1; }
   _arl_paths="$(arl_changed_paths "$2")" || return 1
   _arl_cr="$(printf '\r')"
 

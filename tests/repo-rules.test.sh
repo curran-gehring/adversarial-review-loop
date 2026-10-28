@@ -230,6 +230,21 @@ emptypaths="$work/emptypaths"; mkdir -p "$emptypaths"
 printf '## Section\npaths:   \n- rule\n' > "$emptypaths/REVIEW-RULES.md"
 expect_fail "an empty paths: line" "$emptypaths"
 
+# Present but unusable is not absent: reviewing without the rules would pass
+# exactly the changes they exist to stop.
+dirrules="$work/dirrules"; mkdir -p "$dirrules/REVIEW-RULES.md"
+expect_fail "a REVIEW-RULES.md that is a directory" "$dirrules"
+
+unreadable="$work/unreadable"; mkdir -p "$unreadable"
+printf '## S\npaths: *\n- rule\n' > "$unreadable/REVIEW-RULES.md"
+chmod 000 "$unreadable/REVIEW-RULES.md"
+if [ -r "$unreadable/REVIEW-RULES.md" ]; then
+  ok "unreadable-file case skipped (chmod cannot revoke read here)"
+else
+  expect_fail "an unreadable REVIEW-RULES.md" "$unreadable"
+fi
+chmod 644 "$unreadable/REVIEW-RULES.md"
+
 big="$work/big"; mkdir -p "$big"
 { printf '## Huge\npaths: *\n'; head -c 3000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$big/REVIEW-RULES.md"
 err="$(ARL_RULES_MAX_BYTES=1000 arl_with_repo_rules "" "$work/py.diff" "$big" 2>&1 >/dev/null)" \
