@@ -294,7 +294,14 @@ arl_with_repo_rules() {
   # fail silently if the file went away after the checks above.
   _arl_text="$(cat -- "$_arl_rf")" || {
     echo "arl: could not read review rules file: $_arl_rf" >&2; return 1; }
+  _arl_max="${ARL_RULES_MAX_BYTES:-12000}"
+  case "$_arl_max" in
+    ''|*[!0-9]*|0) echo "arl: ARL_RULES_MAX_BYTES must be a positive whole number, got '$_arl_max'" >&2; return 1 ;;
+  esac
   _arl_paths="$(arl_changed_paths "$2")" || return 1
+  # Hunks with no file header pass arl_require_diff but name no file, and no
+  # pattern, `*` included, can match nothing.
+  [ -n "$_arl_paths" ] || { echo "arl: no file path could be read from $2" >&2; return 1; }
   _arl_cr="$(printf '\r')"
 
   _arl_sel=""; _arl_sec=""; _arl_title=""; _arl_want=0; _arl_n=0; _arl_state=preamble
@@ -341,8 +348,8 @@ $_arl_sec
 
   [ -n "$_arl_sel" ] || { printf '%s' "$_arl_ctx"; return 0; }
   _arl_size="$(printf '%s' "$_arl_sel" | wc -c | tr -d ' ')"
-  if [ "$_arl_size" -gt "${ARL_RULES_MAX_BYTES:-12000}" ]; then
-    echo "arl: the rules selected from $_arl_rf are $_arl_size bytes, over ARL_RULES_MAX_BYTES=${ARL_RULES_MAX_BYTES:-12000}; narrow their paths: patterns or shorten them" >&2
+  if [ "$_arl_size" -gt "$_arl_max" ]; then
+    echo "arl: the rules selected from $_arl_rf are $_arl_size bytes, over ARL_RULES_MAX_BYTES=$_arl_max; narrow their paths: patterns or shorten them" >&2
     return 1
   fi
   printf '%s%sRepository review rules (from REVIEW-RULES.md; only the sections whose paths match this diff). They record defects this repository has already shipped or caught. Apply the ones within your lens: a change that breaks one is a defect, so REJECT it and name the rule.\n\n%s' \

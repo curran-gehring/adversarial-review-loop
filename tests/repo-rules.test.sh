@@ -251,6 +251,22 @@ err="$( cat() { return 1; }; arl_with_repo_rules "" "$work/py.diff" "$repo" 2>&1
   && bad "a failed read of REVIEW-RULES.md was accepted" \
   || { [ -n "$err" ] && ok "a failed read of REVIEW-RULES.md fails with a message" || bad "a failed read failed silently"; }
 
+# A diff with hunks but no file headers passes arl_require_diff and names no
+# file; with a rules file present, that must not read as "no rules apply".
+printf '@@ -1 +1 @@\n-old\n+new\n' > "$work/hunk-only.diff"
+expect_fail_diff() {
+  arl_with_repo_rules "" "$1" "$repo" >/dev/null 2>"$work/ef.err" \
+    && { bad "$2 was accepted"; return; }
+  [ -s "$work/ef.err" ] && ok "$2 fails with a message" || bad "$2 failed silently"
+}
+expect_fail_diff "$work/hunk-only.diff" "a diff that names no file"
+
+for limit in abc -5 0 ''; do
+  ARL_RULES_MAX_BYTES="$limit" arl_with_repo_rules "" "$work/py.diff" "$repo" >/dev/null 2>&1 \
+    && { [ -z "$limit" ] && ok "an empty ARL_RULES_MAX_BYTES uses the default" || bad "ARL_RULES_MAX_BYTES='$limit' was accepted"; } \
+    || { [ -z "$limit" ] && bad "an empty ARL_RULES_MAX_BYTES failed" || ok "ARL_RULES_MAX_BYTES='$limit' fails"; }
+done
+
 big="$work/big"; mkdir -p "$big"
 { printf '## Huge\npaths: *\n'; head -c 3000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$big/REVIEW-RULES.md"
 err="$(ARL_RULES_MAX_BYTES=1000 arl_with_repo_rules "" "$work/py.diff" "$big" 2>&1 >/dev/null)" \
