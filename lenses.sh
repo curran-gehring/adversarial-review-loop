@@ -295,9 +295,13 @@ arl_with_repo_rules() {
   _arl_text="$(cat -- "$_arl_rf")" || {
     echo "arl: could not read review rules file: $_arl_rf" >&2; return 1; }
   _arl_max="${ARL_RULES_MAX_BYTES:-12000}"
+  # At most 9 digits, so the shell's integer comparison cannot overflow.
   case "$_arl_max" in
-    ''|*[!0-9]*|0) echo "arl: ARL_RULES_MAX_BYTES must be a positive whole number, got '$_arl_max'" >&2; return 1 ;;
+    ''|*[!0-9]*|??????????*) _arl_max_ok=0 ;;
+    *) [ "$_arl_max" -gt 0 ] && _arl_max_ok=1 || _arl_max_ok=0 ;;
   esac
+  [ "$_arl_max_ok" = 1 ] || {
+    echo "arl: ARL_RULES_MAX_BYTES must be a whole number from 1 to 999999999, got '$_arl_max'" >&2; return 1; }
   _arl_paths="$(arl_changed_paths "$2")" || return 1
   # Hunks with no file header pass arl_require_diff but name no file, and no
   # pattern, `*` included, can match nothing.

@@ -261,7 +261,7 @@ expect_fail_diff() {
 }
 expect_fail_diff "$work/hunk-only.diff" "a diff that names no file"
 
-for limit in abc -5 0 ''; do
+for limit in abc -5 0 00 99999999999999999999 ''; do
   ARL_RULES_MAX_BYTES="$limit" arl_with_repo_rules "" "$work/py.diff" "$repo" >/dev/null 2>&1 \
     && { [ -z "$limit" ] && ok "an empty ARL_RULES_MAX_BYTES uses the default" || bad "ARL_RULES_MAX_BYTES='$limit' was accepted"; } \
     || { [ -z "$limit" ] && bad "an empty ARL_RULES_MAX_BYTES failed" || ok "ARL_RULES_MAX_BYTES='$limit' fails"; }
