@@ -73,6 +73,47 @@ diff -u "$work/paths.want" "$work/crlf.got" >/dev/null \
   && ok "arl_changed_paths strips CR from a CRLF diff" \
   || bad "arl_changed_paths kept CRs: $(tr '\n\r' '|^' < "$work/crlf.got")"
 
+# Git C-quotes a path with non-ASCII bytes or special characters. A binary
+# change has no ---/+++ lines, so the diff --git line is its only header; a
+# reader that cannot decode it yields no path and every rule, `paths: *`
+# included, silently drops out of the review.
+cat > "$work/quoted.diff" <<'DIFF'
+diff --git "a/img/caf\303\251.png" "b/img/caf\303\251.png"
+index 1111111..2222222 100644
+Binary files "a/img/caf\303\251.png" and "b/img/caf\303\251.png" differ
+diff --git a/plain.txt "b/say \"hi\".txt"
+similarity index 100%
+rename from plain.txt
+rename to "say \"hi\".txt"
+diff --git "a/tab\there.sql" "b/tab\there.sql"
+--- "a/tab\there.sql"
++++ "b/tab\there.sql"
+@@ -1 +1 @@
+-old
++new
+DIFF
+{ printf 'img/caf\303\251.png\n'; printf 'plain.txt\n'; printf 'say "hi".txt\n'; printf 'tab\there.sql\n'; } \
+  | sort > "$work/quoted.want"
+arl_changed_paths "$work/quoted.diff" > "$work/quoted.got"
+diff -u "$work/quoted.want" "$work/quoted.got" >/dev/null \
+  && ok "arl_changed_paths decodes git-quoted paths, including binary-only headers" \
+  || bad "arl_changed_paths got: $(tr '\n' '|' < "$work/quoted.got")"
+
+# A file header that yields no path must stop the review, not drop the file.
+cat > "$work/unreadable.diff" <<'DIFF'
+diff --git a/one b/two
+diff --git a/x b/x
+--- a/x
++++ b/x
+@@ -1 +1 @@
+-old
++new
+DIFF
+arl_changed_paths "$work/unreadable.diff" >/dev/null 2>"$work/unreadable.err" \
+  && bad "a file header with no readable path was accepted" \
+  || { [ -s "$work/unreadable.err" ] && ok "a file header with no readable path fails with a message" \
+       || bad "an unreadable file header failed silently"; }
+
 # --- arl_with_repo_rules ----------------------------------------------------
 repo="$work/repo"
 mkdir -p "$repo"
@@ -150,6 +191,14 @@ diff --git a/README.md b/README.md
 DIFF
 got="$(arl_with_repo_rules "ctx only" "$work/other.diff" "$repo")"
 [ "$got" = "ctx only" ] && ok "no matching section leaves the context unchanged" || bad "context changed with no match: $got"
+
+quotedrepo="$work/quotedrepo"; mkdir -p "$quotedrepo"
+printf '## Images\npaths: img/*.png\n- IMG_RULE_MARKER\n' > "$quotedrepo/REVIEW-RULES.md"
+got="$(arl_with_repo_rules "" "$work/quoted.diff" "$quotedrepo")"
+case "$got" in *IMG_RULE_MARKER*) ok "a binary change to a non-ASCII path gets its rules" ;; *) bad "rules dropped for a git-quoted binary path" ;; esac
+arl_with_repo_rules "" "$work/unreadable.diff" "$quotedrepo" >/dev/null 2>&1 \
+  && bad "rules were selected from a diff with an unreadable file header" \
+  || ok "an unreadable file header fails the rule selection"
 
 norules="$work/norules"; mkdir -p "$norules"
 got="$(arl_with_repo_rules "ctx only" "$work/py.diff" "$norules")"; rc=$?

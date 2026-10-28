@@ -174,33 +174,87 @@ arl_clear_logs() {
 # Reads file headers only: `diff --git a/P b/P` (binary and mode-only changes
 # have no ---/+++ lines), rename/copy from/to, and ---/+++ lines before a
 # file's first hunk. Inside a hunk, a removed line "-- a/x" reads "--- a/x" and
-# must not count as a header. Git-quoted paths lose their quotes but keep any
-# escapes, so a path with non-ASCII characters may not match its pattern.
+# must not count as a header. Git C-quotes a path with non-ASCII bytes or
+# special characters ("caf\303\251.png"); those are decoded to the real bytes.
+# A `diff --git` block that yields no path fails with a message, because a
+# file the reader cannot name is a file whose rules would silently drop out.
+#
+# The awk tags each path R: (raw) or Q: (quoted, escapes rewritten for
+# printf %b), and the shell decodes the Q: ones, since awk cannot portably
+# print a byte above 127. A path containing a newline is not supported.
 arl_changed_paths() {
-  awk '
-    function emit(p) {
-      sub(/\t.*$/, "", p)
-      if (p ~ /^".*"$/) p = substr(p, 2, length(p) - 2)
+  _arl_raw="$(awk '
+    # Rewrite the inside of a git-quoted string for printf %b: \NNN octal
+    # becomes \0NNN, \" becomes ", and \\, \t, \n and the rest pass through.
+    function unq(s,   out, i, c, n) {
+      s = substr(s, 2, length(s) - 2); n = length(s); out = ""
+      for (i = 1; i <= n; i++) {
+        c = substr(s, i, 1)
+        if (c == "\\" && i < n) {
+          c = substr(s, i + 1, 1)
+          if (c ~ /[0-7]/) { out = out "\\0" substr(s, i + 1, 3); i += 3 }
+          else if (c == "\"") { out = out "\""; i++ }
+          else { out = out "\\" c; i++ }
+        } else out = out c
+      }
+      return out
+    }
+    # Index of the quote closing the quoted string that starts at s[1].
+    function qend(s,   i, c) {
+      for (i = 2; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == "\\") i++
+        else if (c == "\"") return i
+      }
+      return 0
+    }
+    # emit(path, prefixed): prefixed paths carry git'\''s a/ or b/.
+    function emit(p, prefixed,   tag) {
+      tag = "R:"
+      if (p ~ /^".*"$/) { p = unq(p); tag = "Q:" }
       if (p == "/dev/null" || p == "") return
-      sub(/^[ab]\//, "", p)
-      print p
+      if (prefixed && p !~ /^[ab]\//) return
+      if (prefixed) p = substr(p, 3)
+      print tag p; got = 1
+    }
+    function check() {
+      if (block && !got) { print "arl: cannot read a path from the diff header: " hdr > "/dev/stderr"; bad = 1 }
     }
     { sub(/\r$/, "") }
     NR == 1 || /^diff / { header = 1 }
     /^@@/ { header = 0; next }
     !header { next }
     /^diff --git / {
+      check(); block = 1; got = 0; hdr = $0
       rest = substr($0, 12); n = length(rest)
-      if ((n - 5) % 2 == 0) {
+      if (substr(rest, 1, 1) == "\"") {
+        j = qend(rest)
+        if (j) { emit(substr(rest, 1, j), 1); emit(substr(rest, j + 2), 1) }
+      } else if ((j = index(rest, " \"b/")) > 0) {
+        emit(substr(rest, 1, j - 1), 1); emit(substr(rest, j + 1), 1)
+      } else if ((n - 5) % 2 == 0) {
         half = (n - 5) / 2
-        a = substr(rest, 3, half); b = substr(rest, half + 6)
-        if (substr(rest, 1, 2) == "a/" && substr(rest, half + 3, 3) == " b/" && a == b) print a
+        a = substr(rest, 3, half)
+        if (substr(rest, 1, 2) == "a/" && substr(rest, half + 3, 3) == " b/" && a == substr(rest, half + 6))
+          emit("a/" a, 1)
       }
       next
     }
-    /^(rename|copy) (from|to) / { p = $0; sub(/^[a-z]+ [a-z]+ /, "", p); print p; next }
-    /^(---|\+\+\+) / { emit(substr($0, 5)) }
-  ' "$1" | sort -u
+    /^(rename|copy) (from|to) / { p = $0; sub(/^[a-z]+ [a-z]+ /, "", p); emit(p, 0); next }
+    /^(---|\+\+\+) / {
+      p = substr($0, 5)
+      if (p !~ /^"/) sub(/\t.*$/, "", p)   # a trailing timestamp; quoted paths escape their tabs
+      emit(p, p != "/dev/null" && p ~ /^"?[ab]\//)
+    }
+    END { check(); if (bad) exit 3 }
+  ' "$1")" || return 1
+
+  printf '%s\n' "$_arl_raw" | while IFS= read -r _arl_p; do
+    case "$_arl_p" in
+      Q:*) printf '%b\n' "${_arl_p#Q:}" ;;
+      R:*) printf '%s\n' "${_arl_p#R:}" ;;
+    esac
+  done | sort -u
 }
 
 # _arl_rules_match <patterns> <paths> — succeed if any pattern matches any
@@ -234,7 +288,7 @@ arl_with_repo_rules() {
   elif [ ! -f "$_arl_rf" ]; then
     printf '%s' "$_arl_ctx"; return 0
   fi
-  _arl_paths="$(arl_changed_paths "$2")"
+  _arl_paths="$(arl_changed_paths "$2")" || return 1
   _arl_cr="$(printf '\r')"
 
   _arl_sel=""; _arl_sec=""; _arl_title=""; _arl_want=0; _arl_n=0; _arl_state=preamble
