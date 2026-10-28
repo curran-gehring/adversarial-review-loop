@@ -81,7 +81,10 @@ fi
 # the diff added. See arl_with_repo_rules in lenses.sh.
 rules="$tmp/review-rules.md"
 if git cat-file -e "${basesha}:REVIEW-RULES.md" 2>/dev/null; then
-  git show "${basesha}:REVIEW-RULES.md" > "$rules" \
+  # A tree there would print as a listing and select no rules at all.
+  [ "$(git cat-file -t "${basesha}:REVIEW-RULES.md")" = blob ] \
+    || { echo "error: REVIEW-RULES.md in $basesha is not a file" >&2; exit 1; }
+  git cat-file blob "${basesha}:REVIEW-RULES.md" > "$rules" \
     || { echo "error: could not read REVIEW-RULES.md from $basesha" >&2; exit 1; }
 else
   : > "$rules"

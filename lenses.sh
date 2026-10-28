@@ -290,6 +290,10 @@ arl_with_repo_rules() {
   # it and the review would run without the rules.
   [ -f "$_arl_rf" ] && [ -r "$_arl_rf" ] || {
     echo "arl: review rules file is missing, not a file, or unreadable: $_arl_rf" >&2; return 1; }
+  # Read it whole, checked, before parsing: a redirect on the loop below would
+  # fail silently if the file went away after the checks above.
+  _arl_text="$(cat -- "$_arl_rf")" || {
+    echo "arl: could not read review rules file: $_arl_rf" >&2; return 1; }
   _arl_paths="$(arl_changed_paths "$2")" || return 1
   _arl_cr="$(printf '\r')"
 
@@ -327,7 +331,7 @@ $_arl_sec
     esac
     _arl_sec="$_arl_sec$_arl_line
 "
-  done < "$_arl_rf"
+  done <<<"$_arl_text"
   if [ "$_arl_state" = paths ]; then
     echo "arl: $_arl_rf: '$_arl_title' must begin with a paths: line" >&2; return 1
   fi

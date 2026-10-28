@@ -142,6 +142,23 @@ grep -q '^VERDICT: APPROVE' "$work/norules.out" && ! grep -q ADDED_RULE_MARKER "
   && ok "a base without rules reviews without them" \
   || bad "a base without rules: $(tail -c 300 "$work/norules.out")"
 
+# A base whose REVIEW-RULES.md is a directory has rules nobody can read; the
+# review must stop rather than run without them (git show prints a listing).
+drepo="$work/dir-rules-repo"
+git init -q -b main "$drepo"
+mkdir -p "$drepo/REVIEW-RULES.md"; printf 'x\n' > "$drepo/REVIEW-RULES.md/inner.md"
+git -C "$drepo" add REVIEW-RULES.md
+git -C "$drepo" -c user.email=t@t -c user.name=t commit -q -m base
+git -C "$drepo" checkout -q -b change
+printf 'x = 1\n' > "$drepo/a.py"
+git -C "$drepo" add a.py
+git -C "$drepo" -c user.email=t@t -c user.name=t commit -q -m change
+dsha="$(git -C "$drepo" rev-parse HEAD)"
+( cd "$drepo" && env -u ARL_REVIEW_HOST ARL_TEST_CTX="$work/dir.ctx" ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/dir.out" 2>&1
+[ ! -f "$(git -C "$drepo" rev-parse --absolute-git-dir)/adversarial-review/$dsha" ] && grep -q 'REVIEW-RULES.md' "$work/dir.out" \
+  && ok "a base whose REVIEW-RULES.md is not a file stops the review" \
+  || bad "a base with a REVIEW-RULES.md directory was reviewed: $(tail -c 300 "$work/dir.out")"
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'review-gate: ALL PASS\n'; exit 0

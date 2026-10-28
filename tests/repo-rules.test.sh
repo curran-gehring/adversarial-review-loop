@@ -245,6 +245,12 @@ else
 fi
 chmod 644 "$unreadable/REVIEW-RULES.md"
 
+# The file can vanish or lose read permission between that check and the read;
+# a read that fails must fail the selection too. A failing `cat` stands in.
+err="$( cat() { return 1; }; arl_with_repo_rules "" "$work/py.diff" "$repo" 2>&1 >/dev/null )" \
+  && bad "a failed read of REVIEW-RULES.md was accepted" \
+  || { [ -n "$err" ] && ok "a failed read of REVIEW-RULES.md fails with a message" || bad "a failed read failed silently"; }
+
 big="$work/big"; mkdir -p "$big"
 { printf '## Huge\npaths: *\n'; head -c 3000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$big/REVIEW-RULES.md"
 err="$(ARL_RULES_MAX_BYTES=1000 arl_with_repo_rules "" "$work/py.diff" "$big" 2>&1 >/dev/null)" \
