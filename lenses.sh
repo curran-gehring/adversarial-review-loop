@@ -283,7 +283,8 @@ ARL_PATHS
 arl_with_repo_rules() {
   _arl_ctx="$1"
   _arl_rf="${ARL_RULES_FILE:-$3/REVIEW-RULES.md}"
-  if [ -z "${ARL_RULES_FILE:-}" ] && [ ! -e "$_arl_rf" ]; then
+  # `-e` is false for a dangling symlink, which is broken rules, not none.
+  if [ -z "${ARL_RULES_FILE:-}" ] && [ ! -e "$_arl_rf" ] && [ ! -L "$_arl_rf" ]; then
     printf '%s' "$_arl_ctx"; return 0
   fi
   # Present but unusable is not absent: the loop below would read nothing from

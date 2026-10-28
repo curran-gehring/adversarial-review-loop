@@ -162,6 +162,24 @@ dsha="$(git -C "$drepo" rev-parse HEAD)"
   && ok "a base whose REVIEW-RULES.md is not a file stops the review" \
   || bad "a base with a REVIEW-RULES.md directory was reviewed: $(tail -c 300 "$work/dir.out")"
 
+# A symlink committed at REVIEW-RULES.md is a blob whose content is the link
+# target, which parses as a preamble and selects no rules. Built in the index so
+# it works where the filesystem has no symlinks.
+srepo="$work/symlink-rules-repo"
+git init -q -b main "$srepo"
+lblob="$(printf 'elsewhere.md' | git -C "$srepo" hash-object -w --stdin)"
+git -C "$srepo" update-index --add --cacheinfo "120000,$lblob,REVIEW-RULES.md"
+git -C "$srepo" -c user.email=t@t -c user.name=t commit -q -m base
+git -C "$srepo" checkout -q -f -b change
+printf 'x = 1\n' > "$srepo/a.py"
+git -C "$srepo" add a.py
+git -C "$srepo" -c user.email=t@t -c user.name=t commit -q -m change
+ssha="$(git -C "$srepo" rev-parse HEAD)"
+( cd "$srepo" && env -u ARL_REVIEW_HOST ARL_TEST_CTX="$work/sym.ctx" ARL_FANOUT="$tools/rules-fan.sh" "$gate" main ) > "$work/sym.out" 2>&1
+[ ! -f "$(git -C "$srepo" rev-parse --absolute-git-dir)/adversarial-review/$ssha" ] && grep -q 'REVIEW-RULES.md' "$work/sym.out" \
+  && ok "a base whose REVIEW-RULES.md is a symlink stops the review" \
+  || bad "a base with a REVIEW-RULES.md symlink was reviewed: $(tail -c 300 "$work/sym.out")"
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'review-gate: ALL PASS\n'; exit 0

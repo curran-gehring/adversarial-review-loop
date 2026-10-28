@@ -245,6 +245,15 @@ else
 fi
 chmod 644 "$unreadable/REVIEW-RULES.md"
 
+# A dangling symlink fails `-e` but is not an absent file.
+linked="$work/linked"; mkdir -p "$linked"
+ln -s "$work/no-such-target.md" "$linked/REVIEW-RULES.md" 2>/dev/null
+if [ -L "$linked/REVIEW-RULES.md" ]; then
+  expect_fail "a dangling REVIEW-RULES.md symlink" "$linked"
+else
+  ok "dangling-symlink case skipped (no symlinks here)"
+fi
+
 # The file can vanish or lose read permission between that check and the read;
 # a read that fails must fail the selection too. A failing `cat` stands in.
 err="$( cat() { return 1; }; arl_with_repo_rules "" "$work/py.diff" "$repo" 2>&1 >/dev/null )" \
