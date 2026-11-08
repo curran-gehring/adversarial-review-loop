@@ -70,7 +70,7 @@ arl_clear_logs "$OUT" correctness data ui || exit 2
 rm -f "$OUT".correctness.gemini.log "$OUT".data.gemini.log "$OUT".ui.gemini.log \
   "$OUT".correctness.codex.log "$OUT".data.codex.log "$OUT".ui.codex.log
 
-DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-3.1-pro-high,ui=gemini:gemini-3.1-pro-high"
+DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=codex:gpt-5.6-luna,ui=claude:sonnet"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
 
 arl_require_diff "$DIFF" || exit 2

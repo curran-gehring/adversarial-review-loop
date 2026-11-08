@@ -53,7 +53,9 @@ else
 fi
 # Model overrides now affect the panel too, so escalation cannot silently stay
 # on the routine model. An explicit panel remains the highest-priority choice.
-export ARL_PANEL="${ARL_PANEL:-correctness=$correctness,data=gemini:$ARL_GEMINI_MODEL,ui=gemini:$ARL_GEMINI_MODEL}"
+# Codex and Claude only (Curran 2026-11-08): no Gemini lens until he decides on
+# it, so data runs on Codex and ui on Claude, as in the Tucker Review Gate.
+export ARL_PANEL="${ARL_PANEL:-correctness=$correctness,data=codex:$ARL_CODEX_MODEL,ui=claude:$ARL_CLAUDE_MODEL}"
 
 
 # Escape hatches, all preserving the same log/VERDICT contract:
