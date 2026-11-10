@@ -121,7 +121,9 @@ if [ -n "$host" ]; then
   # you want the reviewer to open full source files for surrounding context.
   # ARL_RULES_FILE is set explicitly so a value in the host's environment cannot
   # replace the base commit's rules copied above.
-  ssh "$host" "ctx=\$(cat \"$rdir/context.txt\"); chmod +x \"$rdir\"/*.sh; ARL_RULES_FILE=\"$rdir/REVIEW-RULES.md\" bash \"$rdir/fanout.sh\" \"$rdir/review.diff\" \"$rdir/fan\" \"\$ctx\" \"$rdir\" > \"$rdir/fanout.out\" 2>&1" >/dev/null 2>&1 || true
+  # ARL_PRIMARY_MODEL (codex|claude, a fixed word) carries the detected author, so
+  # the panel on the host still puts correctness on the opposite family.
+  ssh "$host" "ctx=\$(cat \"$rdir/context.txt\"); chmod +x \"$rdir\"/*.sh; ARL_PRIMARY_MODEL=$primary_model ARL_RULES_FILE=\"$rdir/REVIEW-RULES.md\" bash \"$rdir/fanout.sh\" \"$rdir/review.diff\" \"$rdir/fan\" \"\$ctx\" \"$rdir\" > \"$rdir/fanout.out\" 2>&1" >/dev/null 2>&1 || true
   # A missing lens log (lens crashed) must not abort under `set -e`; the log was
   # pre-truncated to empty above, so a failed copy reads as "no verdict".
   for L in correctness data ui; do

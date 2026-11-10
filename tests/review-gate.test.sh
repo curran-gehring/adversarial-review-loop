@@ -201,6 +201,27 @@ for author in claude codex; do
     || bad "a $author author ran '$(cat "$work/runner.calls")' instead of gate.sh"
 done
 
+# Remote mode: the host has its own environment, so the detected author must be
+# passed on the ssh command line or the panel there can't route correctness.
+hostless="$work/hostless-stubs"; mkdir -p "$hostless"
+cat > "$hostless/ssh" <<'STUB'
+#!/usr/bin/env bash
+shift
+exec env -u ARL_PRIMARY_MODEL bash -c "$*"
+STUB
+chmod +x "$hostless/ssh"
+cat > "$pdir/gate.sh" <<SH
+#!/usr/bin/env bash
+echo "author=\${ARL_PRIMARY_MODEL:-unset}" >> "$work/runner.calls"
+for lens in correctness data ui; do printf 'VERDICT: APPROVE\n' > "\$2.\$lens.log"; done
+SH
+chmod +x "$pdir/gate.sh"
+: > "$work/runner.calls"
+( cd "$repo" && PATH="$hostless:$PATH" env -u ARL_FANOUT ARL_REVIEW_HOST=fakehost ARL_PRIMARY_MODEL=codex bash "$pdir/review-gate.sh" main ) > "$work/panel-remote.out" 2>&1
+[ "$(cat "$work/runner.calls")" = "author=codex" ] \
+  && ok "remote mode passes the detected author to the panel" \
+  || bad "remote panel saw '$(cat "$work/runner.calls")' instead of author=codex"
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'review-gate: ALL PASS\n'; exit 0
