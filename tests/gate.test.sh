@@ -47,7 +47,7 @@ case "$calls" in
   *) bad "default did not route to panel-review.sh (got: $calls)" ;;
 esac
 case "$calls" in
-  *correctness=codex:*) ok "default keeps correctness on codex" ;;
+  *correctness=codex:gpt-6.1-sol,*) ok "default runs correctness on codex gpt-6.1-sol" ;;
   *) bad "default lost the codex correctness lens" ;;
 esac
 case "$calls" in
@@ -92,8 +92,8 @@ case "$calls" in
   *) ok "nocodex uses no codex lens" ;;
 esac
 case "$calls" in
-  *correctness=openrouter:openai/gpt-5.6-luna*) ok "nocodex keeps correctness on luna over OpenRouter" ;;
-  *) bad "nocodex did not put correctness on luna" ;;
+  *correctness=openrouter:openai/gpt-6.1-sol*) ok "nocodex keeps correctness on sol over OpenRouter" ;;
+  *) bad "nocodex did not put correctness on sol" ;;
 esac
 case "$calls" in
   *data=openrouter:*ui=openrouter:*) ok "nocodex runs the remaining lenses over OpenRouter" ;;

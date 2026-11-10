@@ -71,7 +71,7 @@ rm -f "$OUT".correctness.gemini.log "$OUT".data.gemini.log "$OUT".ui.gemini.log 
   "$OUT".correctness.gemini-fallback.log "$OUT".data.gemini-fallback.log "$OUT".ui.gemini-fallback.log \
   "$OUT".correctness.codex.log "$OUT".data.codex.log "$OUT".ui.codex.log
 
-DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-4-argon-high,ui=gemini:gemini-4-argon-high"
+DEFAULT_PANEL="correctness=codex:gpt-6.1-sol,data=gemini:gemini-4-argon-high,ui=gemini:gemini-4-argon-high"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
 
 arl_require_diff "$DIFF" || exit 2

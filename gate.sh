@@ -31,7 +31,7 @@ OUT="${2:?missing <out_prefix>}"
 EXTRA="${3:-}"
 REPO="${4:-${ARL_DEFAULT_REPO:-$PWD}}"
 
-export ARL_CODEX_MODEL="${ARL_CODEX_MODEL:-gpt-5.6-luna}"
+export ARL_CODEX_MODEL="${ARL_CODEX_MODEL:-gpt-6.1-sol}"  # Curran 2026-11-10 (was gpt-5.6-luna)
 export ARL_CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-sonnet}"  # alias = latest Sonnet
 export ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"
 export ARL_GEMINI_MODEL="${ARL_GEMINI_MODEL:-gemini-4-argon-high}"
@@ -71,17 +71,17 @@ export ARL_PANEL="${ARL_PANEL:-correctness=$correctness,data=gemini:$ARL_GEMINI_
 # on a missing key rather than silently degrading to a weaker review.
 
 # ARL_GATE=nocodex -> codex-free panel, for when the ChatGPT subscription is out
-# of usage. The correctness lens moves to the SAME model (gpt-5.6-luna) over
+# of usage. The correctness lens moves to the SAME model (gpt-6.1-sol) over
 # OpenRouter, so the panel keeps its two-family structure and the bake-off
 # numbers above still describe it. Two differences worth knowing:
-#   - it costs money on all three lenses (~$0.10/run; luna is $0.20/$1.20 per
-#     Mtok, cheaper than the Gemini lenses beside it), and
+#   - it costs money on all three lenses (gpt-6.1-sol is $2/$10 per Mtok on
+#     OpenRouter, about ten times luna, so expect roughly $0.30-1/run), and
 #   - the HTTP backend cannot browse the repo, so correctness sees the diff plus
 #     the current contents of every file the diff touches, not the whole tree.
-# openai/gpt-5.6-luna must stay on the proxy worker's ALLOWED_MODELS or this
+# openai/gpt-6.1-sol must stay on the proxy worker's ALLOWED_MODELS or this
 # fails closed with a 400 (adversarial-review-loop/openrouter-proxy).
 if [ "${ARL_GATE:-panel}" = "nocodex" ]; then
-  export ARL_PANEL="correctness=openrouter:openai/gpt-5.6-luna,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash"
+  export ARL_PANEL="correctness=openrouter:openai/gpt-6.1-sol,data=openrouter:google/gemini-3.8-flash,ui=openrouter:google/gemini-3.8-flash"
   exec "$here/panel-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO"
 fi
 
