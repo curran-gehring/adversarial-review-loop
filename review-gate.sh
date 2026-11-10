@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Coder-agnostic review runner.
 #
-# Reviews HEAD against <base> with the configured reviewer (the 3-lens Codex
-# fan-out by default) and, on a unanimous APPROVE, records a per-commit receipt
+# Reviews HEAD against <base> with the configured reviewer (the gate.sh panel by
+# default: correctness on the opposite family from the author, data and ui on
+# Gemini) and, on a unanimous APPROVE, records a per-commit receipt
 # that the pre-push gate checks. Works no matter what authored the commits — an
 # agent (Claude Code, Cursor, Aider, Codex-as-coder…) or a human. Run it, then
 # `git push`.
@@ -11,7 +12,7 @@
 # env:
 #   ARL_REVIEW_HOST   run the fan-out on this SSH host (default: local)
 #   ARL_PRIMARY_MODEL primary coder: codex|claude (auto-detected for Codex)
-#   ARL_FANOUT        path to fanout script (default: opposite primary model)
+#   ARL_FANOUT        path to fanout script (default: gate.sh, the mixed panel)
 #   ARL_CONTEXT       one-line context handed to the reviewer
 set -euo pipefail
 
@@ -32,9 +33,10 @@ detect_primary_model() {
 }
 
 primary_model="$(detect_primary_model)"
-default_fanout="$here/fanout-review.sh"
-[ "$primary_model" = "codex" ] && default_fanout="$here/claude-fanout-review.sh"
-fanout="${ARL_FANOUT:-$default_fanout}"
+# The panel (Curran 2026-11-10: Gemini is the review default). gate.sh puts
+# correctness on the family opposite the author, so pass the author it detected.
+export ARL_PRIMARY_MODEL="$primary_model"
+fanout="${ARL_FANOUT:-$here/gate.sh}"
 [ -f "$fanout" ] || { echo "error: fan-out script not found: $fanout" >&2; exit 1; }
 
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 \

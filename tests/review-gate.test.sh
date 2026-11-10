@@ -180,6 +180,27 @@ ssha="$(git -C "$srepo" rev-parse HEAD)"
   && ok "a base whose REVIEW-RULES.md is a symlink stops the review" \
   || bad "a base with a REVIEW-RULES.md symlink was reviewed: $(tail -c 300 "$work/sym.out")"
 
+# --- the default reviewer is the panel (gate.sh), whoever the author is ------
+# Curran 2026-11-10: Gemini is the review default. review-gate.sh used to call the
+# single-model codex fan-out, so pre-push receipts never ran a Gemini lens.
+pdir="$work/panelgate"; mkdir -p "$pdir"
+cp "$gate" "$pdir/review-gate.sh"
+for s in gate.sh fanout-review.sh claude-fanout-review.sh; do
+  cat > "$pdir/$s" <<SH
+#!/usr/bin/env bash
+echo "$s" >> "$work/runner.calls"
+for lens in correctness data ui; do printf 'VERDICT: APPROVE\n' > "\$2.\$lens.log"; done
+SH
+  chmod +x "$pdir/$s"
+done
+for author in claude codex; do
+  : > "$work/runner.calls"
+  ( cd "$repo" && env -u ARL_REVIEW_HOST -u ARL_FANOUT ARL_PRIMARY_MODEL="$author" bash "$pdir/review-gate.sh" main ) > "$work/panel-$author.out" 2>&1
+  [ "$(cat "$work/runner.calls")" = "gate.sh" ] \
+    && ok "a $author author is reviewed by the panel (gate.sh)" \
+    || bad "a $author author ran '$(cat "$work/runner.calls")' instead of gate.sh"
+done
+
 printf '\n'
 if [ "$fails" -eq 0 ]; then
   printf 'review-gate: ALL PASS\n'; exit 0
