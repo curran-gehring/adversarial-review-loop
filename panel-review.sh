@@ -68,9 +68,10 @@ trap 'arl_unlock_prefix' EXIT
 # time; putting it at the very top is what actually closes the class.
 arl_clear_logs "$OUT" correctness data ui || exit 2
 rm -f "$OUT".correctness.gemini.log "$OUT".data.gemini.log "$OUT".ui.gemini.log \
+  "$OUT".correctness.gemini-fallback.log "$OUT".data.gemini-fallback.log "$OUT".ui.gemini-fallback.log \
   "$OUT".correctness.codex.log "$OUT".data.codex.log "$OUT".ui.codex.log
 
-DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=codex:gpt-5.6-luna,ui=claude:sonnet"
+DEFAULT_PANEL="correctness=codex:gpt-5.6-luna,data=gemini:gemini-4-argon-high,ui=gemini:gemini-4-argon-high"
 PANEL="${ARL_PANEL:-$DEFAULT_PANEL}"
 
 arl_require_diff "$DIFF" || exit 2
@@ -126,10 +127,33 @@ done
 unset IFS
 wait
 
+# agy infrastructure failures (not a REJECT the model actually wrote).
+GEMINI_FAILED='^VERDICT: REJECT -- gemini [a-z]+ lens (failed to run|did not return a successful result|emitted no verdict|could not build its request)'
+
+# A Gemini lens whose agy run failed (Argon quota, an outage) retries once on agy
+# at ARL_GEMINI_FALLBACK_MODEL: same subscription, so it is tried before metered
+# OpenRouter. The first agy log is kept as <lens>.gemini.log.
+gemini_fb="${ARL_GEMINI_FALLBACK_MODEL:-gemini-3.8-flash-high}"
+IFS=','
+for entry in $PANEL; do
+  unset IFS
+  lens="${entry%%=*}"; rest="${entry#*=}"; backend="${rest%%:*}"; model="${rest#*:}"
+  log="${OUT}.${lens}.log"
+  if [ "$backend" = gemini ] && [ "$model" != "$gemini_fb" ] && grep -qE "$GEMINI_FAILED" "$log" 2>/dev/null; then
+    mv "$log" "${OUT}.${lens}.gemini.log"
+    env ARL_LENSES="$lens" ARL_NOOP=1 ARL_GEMINI_MODEL="$gemini_fb" \
+      "$here/gemini-fanout-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
+  fi
+  IFS=','
+done
+unset IFS
+wait
+
 # Subscription lenses run first; OpenRouter is the fallback.
 # When agy fails to produce a review -- it errored, timed out, or gave no verdict --
 # that lens reruns on OpenRouter, and the agy log is kept beside it as
-# <lens>.gemini.log. Codex works the same way: a usage limit or crash leaves no
+# <lens>.gemini.log (or <lens>.gemini-fallback.log when the Flash retry above
+# already holds that name). Codex works the same way: a usage limit or crash leaves no
 # VERDICT line, so the lens reruns on the same model over OpenRouter and the
 # codex log is kept as <lens>.codex.log. A REJECT either one actually wrote is a
 # review and stands. Without OPENROUTER_API_KEY or ARL_PROXY_TOKEN the failure
@@ -145,8 +169,12 @@ if [ -n "${OPENROUTER_API_KEY:-}${ARL_PROXY_TOKEN:-}" ]; then
       env ARL_LENSES="$lens" ARL_NOOP=1 ARL_OPENROUTER_MODEL="openai/$model" \
         "$here/openrouter-fanout-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
     fi
-    if [ "$backend" = gemini ] && grep -qE '^VERDICT: REJECT -- gemini [a-z]+ lens (failed to run|did not return a successful result|emitted no verdict|could not build its request)' "$log" 2>/dev/null; then
-      mv "$log" "${OUT}.${lens}.gemini.log"
+    if [ "$backend" = gemini ] && grep -qE "$GEMINI_FAILED" "$log" 2>/dev/null; then
+      if [ -e "${OUT}.${lens}.gemini.log" ]; then
+        mv "$log" "${OUT}.${lens}.gemini-fallback.log"
+      else
+        mv "$log" "${OUT}.${lens}.gemini.log"
+      fi
       env ARL_LENSES="$lens" ARL_NOOP=1 ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"         "$here/openrouter-fanout-review.sh" "$DIFF" "$OUT" "$EXTRA" "$REPO" >/dev/null 2>&1 &
     fi
     IFS=','

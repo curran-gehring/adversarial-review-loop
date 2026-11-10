@@ -39,7 +39,7 @@ printf 'diff --git a/x b/x\n' > "$work/d.diff"
 
 run_gate() { : > "$ARL_TEST_CALLS"; env -u ARL_PANEL -u ARL_GATE -u ARL_CLAUDE_MODEL -u ARL_CODEX_MODEL -u ARL_OPENROUTER_MODEL -u ARL_GEMINI_MODEL -u CODEX_SHELL -u CODEX_THREAD_ID -u CODEX_CI ARL_PRIMARY_MODEL=claude "$@" "$sandbox/gate.sh" "$work/d.diff" "$work/out" "ctx"; }
 
-# --- default: Codex and Claude only (Curran 2026-11-08: no Gemini until he decides) ----
+# --- default: Gemini 4 Argon on data and ui (Curran 2026-11-10: gmail Gemini account) ----
 run_gate ARL_DEFAULT_REPO="$work" >/dev/null 2>&1
 calls="$(cat "$ARL_TEST_CALLS")"
 case "$calls" in
@@ -51,12 +51,13 @@ case "$calls" in
   *) bad "default lost the codex correctness lens" ;;
 esac
 case "$calls" in
-  *data=codex:gpt-5.6-luna,ui=claude:sonnet*) ok "default runs data on Codex and ui on Claude" ;;
-  *) bad "default did not put data on Codex and ui on Claude (got: $calls)" ;;
+  *data=gemini:gemini-4-argon-high,ui=gemini:gemini-4-argon-high*) ok "default runs data and ui on Gemini 4 Argon High" ;;
+  *) bad "default did not put data and ui on Gemini 4 Argon High (got: $calls)" ;;
 esac
-case "$calls" in
-  *gemini*|*openrouter*) bad "default still routes a lens to Gemini or OpenRouter" ;;
-  *) ok "default uses no Gemini or OpenRouter lens" ;;
+run_gate ARL_GEMINI_MODEL=gemini-3.8-flash-high ARL_DEFAULT_REPO="$work" >/dev/null 2>&1
+case "$(cat "$ARL_TEST_CALLS")" in
+  *data=gemini:gemini-3.8-flash-high,ui=gemini:gemini-3.8-flash-high*) ok "ARL_GEMINI_MODEL changes the Gemini lenses" ;;
+  *) bad "ARL_GEMINI_MODEL was ignored by the default panel" ;;
 esac
 
 # Author routing and escalation must affect the actual mixed panel.
@@ -72,12 +73,12 @@ for spec in \
 done
 run_gate ARL_PRIMARY_MODEL=codex ARL_CLAUDE_MODEL=claude-opus-5 >/dev/null 2>&1
 case "$(cat "$ARL_TEST_CALLS")" in
-  *correctness=claude:claude-opus-5,data=codex:gpt-5.6-luna,ui=claude:claude-opus-5*) ok "Codex escalation uses Opus on every Claude lens" ;;
+  *correctness=claude:claude-opus-5,data=gemini:*) ok "Codex escalation uses Opus on correctness" ;;
   *) bad "Codex escalation ignored" ;;
 esac
 run_gate CODEX_THREAD_ID=test ARL_PRIMARY_MODEL=claude ARL_CODEX_MODEL=gpt-5.6-sol >/dev/null 2>&1
 case "$(cat "$ARL_TEST_CALLS")" in
-  *correctness=codex:gpt-5.6-sol,data=codex:gpt-5.6-sol,ui=claude:sonnet*) ok "explicit Claude author overrides detection and escalation uses Sol" ;;
+  *correctness=codex:gpt-5.6-sol,data=gemini:*) ok "explicit Claude author overrides detection and escalation uses Sol" ;;
   *) bad "Claude escalation ignored" ;;
 esac
 

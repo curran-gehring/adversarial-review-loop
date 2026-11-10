@@ -141,9 +141,11 @@ fi
 cat > "$stubdir/agy" <<'STUB'
 #!/usr/bin/env bash
 cat >/dev/null
-printf 'agy %s\n' "$ARL_STUB_AGY" >> "$ARL_STUB_CALLS"
+printf 'agy %s %s\n' "$ARL_STUB_AGY" "$*" >> "$ARL_STUB_CALLS"
 case "$ARL_STUB_AGY" in
   fail)   echo 'boom' >&2; exit 1 ;;
+  fail-argon) case " $* " in *argon*) echo 'quota exhausted' >&2; exit 1 ;; esac
+          printf '{"event":"result","result":{"status":"SUCCESS","response":"flash reviewed\\nVERDICT: APPROVE"}}\n' ;;
   reject) printf '{"event":"result","result":{"status":"SUCCESS","response":"real bug\\nVERDICT: REJECT -- bug in A.swift"}}\n' ;;
   *)      printf '{"event":"result","result":{"status":"SUCCESS","response":"gemini reviewed\\nVERDICT: APPROVE"}}\n' ;;
 esac
@@ -174,6 +176,31 @@ grep -q '^curl ' "$ARL_STUB_CALLS" && bad "a real Gemini REJECT triggered an Ope
 env -u OPENROUTER_API_KEY -u ARL_PROXY_TOKEN ARL_STUB_AGY=fail ARL_PANEL="$gemini_panel" bash "$panel" "$work/d.diff" "$out8" "ctx" "$repo" >/dev/null 2>&1
 grep -qE '^VERDICT: REJECT -- gemini data lens failed to run' "${out8}.data.log" 2>/dev/null \
   && ok "without an OpenRouter key the agy failure fails closed" || bad "no-key agy failure did not fail closed"
+
+# --- a failed Argon lens retries on agy Gemini 3.8 Flash before OpenRouter ---
+# Both models are on the same subscription, so the unmetered rung comes first.
+argon_panel="correctness=codex:gpt-5.6-luna,data=gemini:gemini-4-argon-high,ui=gemini:gemini-4-argon-high"
+: > "$ARL_STUB_CALLS"; out8c="$work/argonflash"
+ARL_STUB_AGY=fail-argon ARL_PANEL="$argon_panel" bash "$panel" "$work/d.diff" "$out8c" "ctx" "$repo" >/dev/null 2>&1
+for lens in data ui; do
+  if grep -q 'flash reviewed' "${out8c}.${lens}.log" 2>/dev/null && grep -qE '^VERDICT: APPROVE' "${out8c}.${lens}.log"; then
+    ok "failed Argon $lens lens is rerun on agy Flash"
+  else
+    bad "failed Argon $lens lens was not rerun on agy Flash"
+  fi
+  grep -q 'failed to run' "${out8c}.${lens}.gemini.log" 2>/dev/null \
+    && ok "Argon failure for $lens is kept in .gemini.log" || bad "Argon failure for $lens was discarded"
+done
+grep -q 'gemini-3.8-flash-high' "$ARL_STUB_CALLS" && ok "the agy rerun uses gemini-3.8-flash-high" || bad "the agy rerun did not use gemini-3.8-flash-high"
+grep -q '^curl ' "$ARL_STUB_CALLS" && bad "OpenRouter ran although agy Flash reviewed" || ok "OpenRouter is not used when agy Flash reviews"
+
+# Argon and Flash both failing still reaches OpenRouter, keeping both agy logs.
+: > "$ARL_STUB_CALLS"; out8d="$work/argonall"
+ARL_STUB_AGY=fail ARL_PANEL="$argon_panel" bash "$panel" "$work/d.diff" "$out8d" "ctx" "$repo" >/dev/null 2>&1
+grep -q 'openrouter reviewed' "${out8d}.data.log" 2>/dev/null \
+  && ok "Argon and Flash both failing falls back to OpenRouter" || bad "double agy failure did not reach OpenRouter"
+grep -q 'failed to run' "${out8d}.data.gemini-fallback.log" 2>/dev/null \
+  && ok "the Flash failure is kept in .gemini-fallback.log" || bad "the Flash failure was discarded"
 
 # The proxy's app token alone is enough for the fallback (no real key on this host).
 : > "$ARL_STUB_CALLS"; out8b="$work/proxytoken"

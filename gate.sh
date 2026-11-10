@@ -18,9 +18,10 @@
 # Each caught a real shipped bug the other missed. The panel runs both families.
 #
 # Correctness uses the opposite author family on its subscription. Data and UI
-# use Gemini 3.8 Flash on Curran's Gemini subscription through agy, falling back
-# to the same model on OpenRouter when agy fails (user policy, 2026-10-12;
-# replaces the OpenRouter-only policy of 2026-09-15).
+# use Gemini 4 Argon High on Curran's personal Gemini account through agy
+# (Curran 2026-11-10, ending the 11-08 Codex/Claude-only interim). A failed
+# Argon lens retries on agy Gemini 3.8 Flash, then on OpenRouter Gemini; see
+# panel-review.sh.
 set -u
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -33,7 +34,7 @@ REPO="${4:-${ARL_DEFAULT_REPO:-$PWD}}"
 export ARL_CODEX_MODEL="${ARL_CODEX_MODEL:-gpt-5.6-luna}"
 export ARL_CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-sonnet}"  # alias = latest Sonnet
 export ARL_OPENROUTER_MODEL="${ARL_OPENROUTER_MODEL:-google/gemini-3.8-flash}"
-export ARL_GEMINI_MODEL="${ARL_GEMINI_MODEL:-gemini-3.8-flash-high}"
+export ARL_GEMINI_MODEL="${ARL_GEMINI_MODEL:-gemini-4-argon-high}"
 
 # Match the single-model runner's author detection, with explicit author first.
 case "${ARL_PRIMARY_MODEL:-}" in
@@ -53,9 +54,7 @@ else
 fi
 # Model overrides now affect the panel too, so escalation cannot silently stay
 # on the routine model. An explicit panel remains the highest-priority choice.
-# Codex and Claude only (Curran 2026-11-08): no Gemini lens until he decides on
-# it, so data runs on Codex and ui on Claude, as in the Tucker Review Gate.
-export ARL_PANEL="${ARL_PANEL:-correctness=$correctness,data=codex:$ARL_CODEX_MODEL,ui=claude:$ARL_CLAUDE_MODEL}"
+export ARL_PANEL="${ARL_PANEL:-correctness=$correctness,data=gemini:$ARL_GEMINI_MODEL,ui=gemini:$ARL_GEMINI_MODEL}"
 
 
 # Escape hatches, all preserving the same log/VERDICT contract:
