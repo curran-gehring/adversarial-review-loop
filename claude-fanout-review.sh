@@ -7,7 +7,9 @@
 # VERDICT line. Same log contract as fanout-review.sh:
 #   <out_prefix>.{correctness,data,ui}.log
 #
-# Requires the `claude` CLI on PATH, logged in to the Claude Code subscription.
+# Requires the `claude` CLI on PATH, logged in to the Claude Code subscription,
+# or a `claude setup-token` token in CLAUDE_REVIEW_OAUTH_TOKEN (environment or
+# ~/.claude/secrets.env), which is then used for the reviewers only.
 # Subscription-only invariant: never pass --bare, never set a metered key, and
 # scrub ANTHROPIC_API_KEY from each reviewer subprocess even if the parent shell
 # has one.
@@ -54,6 +56,20 @@ cd "$REPO" || { echo "claude-fanout-review: cannot cd to repo: $REPO" >&2; exit 
 CLAUDE_MODEL="${ARL_CLAUDE_MODEL:-claude-fable-5}"
 CLAUDE_TIMEOUT="${ARL_CLAUDE_TIMEOUT:-600}"
 
+# A long-lived `claude setup-token` token for the reviewer alone, so a review
+# does not depend on whichever interactive login the machine has. Read only
+# this one line from the secrets file; sourcing it would hand every other secret
+# to the reviewer. It reaches only the reviewer subprocess below: a global
+# CLAUDE_CODE_OAUTH_TOKEN would move every Claude Code session onto it. With no
+# token anywhere the reviewer keeps its own login, as before.
+REVIEW_TOKEN="${CLAUDE_REVIEW_OAUTH_TOKEN:-}"
+if [ -z "$REVIEW_TOKEN" ] && [ -r "$HOME/.claude/secrets.env" ]; then
+  REVIEW_TOKEN="$(grep -E '^[[:space:]]*(export[[:space:]]+)?CLAUDE_REVIEW_OAUTH_TOKEN=' "$HOME/.claude/secrets.env" \
+    | tail -n 1 | sed -E 's/^[^=]*=//' | tr -d '\r')"
+  REVIEW_TOKEN="${REVIEW_TOKEN#[\"\']}"
+  REVIEW_TOKEN="${REVIEW_TOKEN%[\"\']}"
+fi
+
 C="$ARL_LENS_CORRECTNESS"
 D="$ARL_LENS_DATA"
 U="$ARL_LENS_UI"
@@ -71,10 +87,13 @@ run() {
     printf '%s\n\nUnified diff:\n' "$RULES"
     cat "$DIFF"
   } | {
+    # This side of the pipe is a subshell, so the export stays here; it is
+    # not passed as an argument, which would show the token in a process list.
+    [ -n "$REVIEW_TOKEN" ] && export CLAUDE_CODE_OAUTH_TOKEN="$REVIEW_TOKEN"
     if [ -n "$tmo" ]; then
-      env -u ANTHROPIC_API_KEY "$tmo" "$CLAUDE_TIMEOUT" claude -p --model "$CLAUDE_MODEL"
+      env -u ANTHROPIC_API_KEY -u CLAUDE_REVIEW_OAUTH_TOKEN "$tmo" "$CLAUDE_TIMEOUT" claude -p --model "$CLAUDE_MODEL"
     else
-      env -u ANTHROPIC_API_KEY claude -p --model "$CLAUDE_MODEL"
+      env -u ANTHROPIC_API_KEY -u CLAUDE_REVIEW_OAUTH_TOKEN claude -p --model "$CLAUDE_MODEL"
     fi
   } > "${OUT}.${name}.log" 2>&1
   rc=$?
